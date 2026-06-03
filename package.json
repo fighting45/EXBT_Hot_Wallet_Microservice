@@ -26,6 +26,7 @@
   "jest": {
     "testEnvironment": "node",
     "testMatch": ["**/tests/**/*.test.js"],
-    "clearMocks": true
+    "clearMocks": true,
+    "setupFiles": ["./tests/setup.js"]
   }
 }

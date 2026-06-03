@@ -42,10 +42,11 @@ describe('WithdrawalService', () => {
     });
 
     it('rejects amount below minimum', async () => {
+      // All-lowercase address is always valid in ethers v6
       await expect(
         withdrawalService.request({
           userId:    1,
-          toAddress: '0x742d35Cc6634C0532925a3b8D4C9A5DA0E0B8b9F',
+          toAddress: '0x742d35cc6634c0532925a3b8d4c9a5da0e0b8b9f',
           amount:    '0.001',
         })
       ).rejects.toMatchObject({ code: 'BELOW_MIN' });
@@ -59,7 +60,7 @@ describe('WithdrawalService', () => {
       await expect(
         withdrawalService.request({
           userId:    1,
-          toAddress: '0x742d35Cc6634C0532925a3b8D4C9A5DA0E0B8b9F',
+          toAddress: '0x742d35cc6634c0532925a3b8d4c9a5da0e0b8b9f',
           amount:    '50',
         })
       ).rejects.toThrow('INSUFFICIENT_BALANCE');
@@ -88,7 +89,7 @@ describe('WithdrawalService', () => {
       await withdrawalService._broadcast(
         'wd-uuid-refund',
         42,
-        '0x742d35Cc6634C0532925a3b8D4C9A5DA0E0B8b9F',
+        '0x742d35cc6634c0532925a3b8d4c9a5da0e0b8b9f',
         '10'
       );
 
