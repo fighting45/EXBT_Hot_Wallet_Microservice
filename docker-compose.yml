@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  wallet-service:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '3500:3500'
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - exbt
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-exbotix}
+      POSTGRES_USER: ${DB_USER:-exbotix}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-exbotix}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - exbt
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - exbt
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  exbt:
+    driver: bridge
