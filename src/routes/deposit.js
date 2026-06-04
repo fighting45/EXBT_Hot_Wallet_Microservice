@@ -8,7 +8,7 @@ const redisPublisher    = require('../services/RedisPublisher');
 
 // GET /deposit/address/:user_id
 // Returns hot wallet address + memo instructions for unique-amount fingerprinting
-router.get('/deposit/address/:user_id', (req, res) => {
+router.get('/address/:user_id', (req, res) => {
   const userId = parseInt(req.params.user_id, 10);
   if (!Number.isInteger(userId) || userId <= 0 || userId > 999999) {
     return res.status(400).json({ error: 'user_id must be 1–999999' });
@@ -35,7 +35,7 @@ router.get('/deposit/address/:user_id', (req, res) => {
 });
 
 // POST /deposit/verify  — manual fallback: re-process a specific tx_hash
-router.post('/deposit/verify', async (req, res, next) => {
+router.post('/verify', async (req, res, next) => {
   try {
     const { tx_hash } = req.body;
     if (!tx_hash || !/^0x[0-9a-fA-F]{64}$/.test(tx_hash)) {
