@@ -87,6 +87,7 @@ class DepositScanner {
       if (!block || !block.transactions || block.transactions.length === 0) {
         await this._updateCursor(blockNum);
         continue;
+
       }
 
       await this._processBlock(block);
@@ -97,8 +98,20 @@ class DepositScanner {
   async _processBlock(block) {
     const hot = HOT_WALLET();
 
-    for (const tx of block.transactions) {
-      if (!tx.to || tx.to.toLowerCase() !== hot) continue;
+    for (const txHash of block.transactions) {
+      let tx;
+      try {
+        tx = await withRetry(
+          () => walletService.getTransaction(txHash),
+          `getTransaction(${txHash})`
+        );
+      } catch (err) {
+        console.error(`[Scanner] failed to fetch tx ${txHash}:`, err.message);
+        continue;
+      }
+
+      if (!tx || !tx.to) continue;
+      if (tx.to.toLowerCase() !== hot) continue;
       if (!tx.value || tx.value === 0n) continue;
 
       await this._processTx(tx, block.number).catch(err =>

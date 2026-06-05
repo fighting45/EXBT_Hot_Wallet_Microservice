@@ -47,11 +47,14 @@ class WithdrawalService {
       await client.query(
         `UPDATE exbt_ledger
            SET reference_id = $1
-         WHERE user_id = $2
-           AND reference_type = 'withdrawal'
-           AND reference_id IS NULL
-         ORDER BY created_at DESC
-         LIMIT 1`,
+         WHERE id = (
+           SELECT id FROM exbt_ledger
+           WHERE user_id = $2
+             AND reference_type = 'withdrawal'
+             AND reference_id IS NULL
+           ORDER BY created_at DESC
+           LIMIT 1
+         )`,
         [withdrawalId, userId]
       );
 

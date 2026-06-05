@@ -4,7 +4,7 @@ const { withdrawalLimiter } = require('../middleware/rateLimit');
 const { adminAuth }      = require('../middleware/auth');
 
 // POST /withdrawal/request
-router.post('/withdrawal/request', withdrawalLimiter, async (req, res, next) => {
+router.post('/request', withdrawalLimiter, async (req, res, next) => {
   try {
     const { user_id, to_address, amount } = req.body;
 

@@ -61,7 +61,12 @@ class WalletService {
 
   async getBlock(blockNumber) {
     this._init();
-    return this._provider.getBlock(blockNumber, true);
+    return this._provider.getBlock(blockNumber, false);
+  }
+
+  async getTransaction(txHash) {
+    this._init();
+    return this._provider.getTransaction(txHash);
   }
 }
 
