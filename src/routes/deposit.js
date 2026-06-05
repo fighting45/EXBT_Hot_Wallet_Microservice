@@ -7,31 +7,57 @@ const ledgerService     = require('../services/LedgerService');
 const redisPublisher    = require('../services/RedisPublisher');
 
 // GET /deposit/address/:user_id
-// Returns hot wallet address + memo instructions for unique-amount fingerprinting
-router.get('/address/:user_id', (req, res) => {
-  const userId = parseInt(req.params.user_id, 10);
-  if (!Number.isInteger(userId) || userId <= 0 || userId > 999999) {
-    return res.status(400).json({ error: 'user_id must be 1–999999' });
+// Generates a fresh random memo, stores it, returns deposit instructions
+router.get('/address/:user_id', async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.user_id, 10);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: 'Invalid user_id' });
+    }
+
+    // Generate a unique memo — retry if collision
+    let memo;
+    let attempts = 0;
+    while (attempts < 10) {
+      const candidate = depositIdentifier.generateMemo();
+      const { rows } = await db.query(
+        `INSERT INTO exbt_deposit_references (user_id, memo_dust)
+         VALUES ($1, $2)
+         ON CONFLICT (memo_dust) DO NOTHING
+         RETURNING memo_dust`,
+        [userId, candidate]
+      );
+      if (rows.length > 0) {
+        memo = rows[0].memo_dust;
+        break;
+      }
+      attempts++;
+    }
+
+    if (!memo) {
+      return res.status(500).json({ error: 'Could not generate unique memo, try again' });
+    }
+
+    const address = walletService.address;
+
+    res.json({
+      address,
+      memo,
+      instructions: [
+        `Send any amount of EXBT to ${address}.`,
+        `Append your 6-digit memo (${memo}) as decimal dust to your amount.`,
+        `Example: to deposit 100 EXBT, send exactly 100.${memo} EXBT.`,
+        'The dust (0.' + memo + ' EXBT) is absorbed as a processing fee.',
+        'Your credited amount = sent amount minus dust.',
+      ].join(' '),
+      example: {
+        deposit_100_exbt: `100.${memo}`,
+        deposit_50_exbt:  `50.${memo}`,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
-
-  const memo    = depositIdentifier.formatMemo(userId);
-  const address = walletService.address;
-
-  res.json({
-    address,
-    memo,
-    instructions: [
-      `Send any amount of EXBT to ${address}.`,
-      `Append your 6-digit memo (${memo}) as decimal dust to your amount.`,
-      `Example: to deposit 100 EXBT, send exactly 100.${memo} EXBT.`,
-      'The dust (0.' + memo + ' EXBT) is absorbed as a processing fee.',
-      'Your credited amount = sent amount minus dust.',
-    ].join(' '),
-    example: {
-      deposit_100_exbt: `100.${memo}`,
-      deposit_50_exbt:  `50.${memo}`,
-    },
-  });
 });
 
 // POST /deposit/verify  — manual fallback: re-process a specific tx_hash

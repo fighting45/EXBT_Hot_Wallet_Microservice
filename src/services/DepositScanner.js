@@ -143,9 +143,23 @@ class DepositScanner {
       return;
     }
 
-    const { userId, dustAmountEth, netCreditedEth, grossAmountEth } = identified;
+    const { dustMemo, dustAmountEth, netCreditedEth, grossAmountEth } = identified;
 
+    // Look up the memo in deposit_references to find the user
+    const { rows: refRows } = await db.query(
+      'SELECT user_id FROM exbt_deposit_references WHERE memo_dust = $1',
+      [dustMemo]
+    );
+
+    if (refRows.length === 0) {
+      // Memo not registered — unidentified
+      await this._storeUnidentified(tx, blockNumber, weiAmount);
+      return;
+    }
+
+    const userId = refRows[0].user_id;
     const client = await db.connect();
+
     try {
       await client.query('BEGIN');
 
@@ -159,7 +173,6 @@ class DepositScanner {
       );
 
       if (rows.length === 0) {
-        // Another process beat us (race on ON CONFLICT)
         await client.query('ROLLBACK');
         return;
       }
@@ -172,6 +185,12 @@ class DepositScanner {
         referenceId:   depositId,
         referenceType: 'deposit',
       });
+
+      // Clear the used memo so it can't be reused
+      await client.query(
+        'DELETE FROM exbt_deposit_references WHERE memo_dust = $1',
+        [dustMemo]
+      );
 
       await client.query('COMMIT');
 
