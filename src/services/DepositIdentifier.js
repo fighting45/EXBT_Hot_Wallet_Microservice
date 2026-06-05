@@ -12,10 +12,11 @@ const MAX_MEMO      = 999_999n;
 
 class DepositIdentifier {
   /**
-   * Generate a random 6-digit memo string (000001–999999).
+   * Generate a random memo string in range 000001–099999.
+   * Max dust = 0.099999 EXBT — always displays as 0.0XXXXX.
    */
   generateMemo() {
-    const num = Math.floor(Math.random() * 999999) + 1;
+    const num = Math.floor(Math.random() * 99999) + 1;
     return String(num).padStart(6, '0');
   }
 
