@@ -45,14 +45,14 @@ router.get('/address/:user_id', async (req, res, next) => {
       memo,
       instructions: [
         `Send any amount of EXBT to ${address}.`,
-        `Append your 6-digit memo (${memo}) as decimal dust to your amount.`,
-        `Example: to deposit 100 EXBT, send exactly 100.${memo} EXBT.`,
-        'The dust (0.' + memo + ' EXBT) is absorbed as a processing fee.',
+        `Add your memo (${memo}) after a decimal point to your amount as: 0.0${memo.slice(1)}.`,
+        `Example: to deposit 100 EXBT, send exactly 100.0${memo.slice(1)} EXBT.`,
+        `The dust (0.0${memo.slice(1)} EXBT) is absorbed as a processing fee.`,
         'Your credited amount = sent amount minus dust.',
       ].join(' '),
       example: {
-        deposit_100_exbt: `100.${memo}`,
-        deposit_50_exbt:  `50.${memo}`,
+        deposit_100_exbt: `100.0${memo.slice(1)}`,
+        deposit_50_exbt:  `50.0${memo.slice(1)}`,
       },
     });
   } catch (err) {

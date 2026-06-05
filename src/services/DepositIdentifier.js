@@ -1,35 +1,32 @@
 const { ethers } = require('ethers');
 
-// Dust occupies the last 6 decimal places of the 18-decimal native amount.
-// A random 6-digit memo is generated per deposit request and stored in
-// exbt_deposit_references. The scanner matches incoming dust against stored
-// memos — never against user_id directly.
-//
-// Dust divisor = 10^12 (18 decimals - 6 memo digits)
+// Dust uses 3 decimal places — format 0.0XX (e.g. 0.034 EXBT).
+// DUST_DIVISOR = 10^15, memo range 10–99 (90 unique slots).
+// Max dust = 0.099 EXBT.
 
-const DUST_DIVISOR  = 10n ** 12n;
-const MAX_MEMO      = 999_999n;
+const DUST_DIVISOR = 10n ** 15n;
+const MAX_MEMO     = 99n;
 
 class DepositIdentifier {
   /**
-   * Generate a random memo string in range 000001–099999.
-   * Max dust = 0.099999 EXBT — always displays as 0.0XXXXX.
+   * Generate a random 3-char memo "010"–"099".
+   * Dust will display as 0.0XX to the user.
    */
   generateMemo() {
-    const num = Math.floor(Math.random() * 99999) + 1;
-    return String(num).padStart(6, '0');
+    const num = Math.floor(Math.random() * 90) + 10; // 10–99
+    return String(num).padStart(3, '0');
   }
 
   /**
    * Extract dust from a wei amount.
-   * Returns { dustMemo: string (6-digit), dustWei: bigint, netWei: bigint }
+   * Returns { dustMemo: string (3-char), dustWei: bigint, netWei: bigint }
    */
   extractDust(weiAmount) {
     const wei      = BigInt(weiAmount);
     const dustNum  = (wei % (DUST_DIVISOR * (MAX_MEMO + 1n))) / DUST_DIVISOR;
     const dustWei  = dustNum * DUST_DIVISOR;
     const netWei   = wei - dustWei;
-    const dustMemo = String(Number(dustNum)).padStart(6, '0');
+    const dustMemo = String(Number(dustNum)).padStart(3, '0');
     return { dustMemo, dustWei, netWei };
   }
 
