@@ -93,9 +93,18 @@ class WithdrawalService {
         from:  walletService.address,
       });
 
-      const gasPrice   = await walletService.getGasPrice();
-      const gasCostWei = gasEstimate * gasPrice;
-      gasFeeEth        = ethers.formatEther(gasCostWei);
+      const gasPrice      = await walletService.getGasPrice();
+      const gasCostWei    = gasEstimate * gasPrice;
+      gasFeeEth           = ethers.formatEther(gasCostWei);
+
+      // Check hot wallet has enough to cover amount + gas
+      const hotBalance = await walletService.provider.getBalance(walletService.address);
+      if (hotBalance < amountWei + gasCostWei) {
+        throw Object.assign(
+          new Error('Hot wallet has insufficient funds to process this withdrawal'),
+          { code: 'HOT_WALLET_INSUFFICIENT' }
+        );
+      }
 
       const sendWei = amountWei - gasCostWei;
       if (sendWei <= 0n) throw new Error('Amount too small to cover gas');

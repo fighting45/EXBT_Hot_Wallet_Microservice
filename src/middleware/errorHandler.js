@@ -1,11 +1,12 @@
 function errorHandler(err, req, res, next) {
   // Map known error codes to HTTP statuses
   const statusMap = {
-    INSUFFICIENT_BALANCE: 422,
-    INVALID_ADDRESS:      400,
-    BELOW_MIN:            400,
-    NOT_FOUND:            404,
-    INVALID_STATE:        409,
+    INSUFFICIENT_BALANCE:     422,
+    HOT_WALLET_INSUFFICIENT:  503,
+    INVALID_ADDRESS:          400,
+    BELOW_MIN:                400,
+    NOT_FOUND:                404,
+    INVALID_STATE:            409,
   };
 
   // LedgerService throws plain Error with message as code — normalize it
