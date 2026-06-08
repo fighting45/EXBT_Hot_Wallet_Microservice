@@ -5,20 +5,20 @@ const errorHandler = require("./middleware/errorHandler");
 
 const app = express();
 
-// // Capture raw body for HMAC verification before JSON parse
-// app.use((req, res, next) => {
-//   let data = '';
-//   req.on('data', chunk => { data += chunk; });
-//   req.on('end',  ()    => { req.rawBody = data; next(); });
-// });
+// Capture raw body for HMAC verification before JSON parse
+app.use((req, res, next) => {
+  let data = '';
+  req.on('data', chunk => { data += chunk; });
+  req.on('end',  ()    => { req.rawBody = data; next(); });
+});
 
 app.use(express.json());
 
 // Service-level auth on all routes except /health
-// app.use((req, res, next) => {
-//   if (req.path === "/health") return next();
-//   serviceAuth(req, res, next);
-// });
+app.use((req, res, next) => {
+  if (req.path === '/health') return next();
+  serviceAuth(req, res, next);
+});
 
 // Routes
 app.use("/", require("./routes/balance"));
