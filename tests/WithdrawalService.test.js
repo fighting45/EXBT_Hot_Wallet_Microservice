@@ -3,6 +3,7 @@ jest.mock('../src/services/WalletService');
 jest.mock('../src/services/LedgerService');
 jest.mock('../src/services/RedisPublisher');
 
+const { ethers }        = require('ethers');
 const db                = require('../src/config/db');
 const walletService     = require('../src/services/WalletService');
 const ledgerService     = require('../src/services/LedgerService');
@@ -78,6 +79,7 @@ describe('WithdrawalService', () => {
       walletService.estimateGas  = jest.fn().mockResolvedValue(21000n);
       walletService.getGasPrice  = jest.fn().mockResolvedValue(1_000_000_000n);
       walletService.address      = '0xHotWallet';
+      walletService.provider     = { getBalance: jest.fn().mockResolvedValue(ethers.parseEther('100')) };
       walletService.sendTransaction = jest.fn().mockRejectedValue(new Error('nonce too low'));
 
       // Connect for refund path

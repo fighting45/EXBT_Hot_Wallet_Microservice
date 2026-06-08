@@ -74,7 +74,7 @@ describe('LedgerService', () => {
         ledgerService.debit(client, {
           userId: 42, amount: '100.0', referenceId: null, referenceType: 'withdrawal',
         })
-      ).rejects.toThrow('INSUFFICIENT_BALANCE');
+      ).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE' });
     });
 
     it('throws when no balance row exists', async () => {
