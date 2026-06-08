@@ -8,6 +8,11 @@ function errorHandler(err, req, res, next) {
     INVALID_STATE:        409,
   };
 
+  // LedgerService throws plain Error with message as code — normalize it
+  if (!err.code && err.message === 'INSUFFICIENT_BALANCE') {
+    err.code = 'INSUFFICIENT_BALANCE';
+  }
+
   const status  = statusMap[err.code] || 500;
   const message = status < 500 ? err.message : 'Internal server error';
 

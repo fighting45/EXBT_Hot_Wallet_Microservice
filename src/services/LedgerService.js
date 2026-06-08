@@ -53,7 +53,7 @@ class LedgerService {
     const deductWei = BigInt(Math.round(parseFloat(amount) * 1e18));
 
     if (current < deductWei) {
-      throw new Error('INSUFFICIENT_BALANCE');
+      throw Object.assign(new Error('Insufficient balance'), { code: 'INSUFFICIENT_BALANCE' });
     }
 
     await client.query(
