@@ -1,32 +1,35 @@
 {
   "name": "exbt-wallet-service",
-  "version": "1.0.0",
-  "description": "EXBT hot wallet microservice — deposit scanning, ledger, withdrawals",
-  "main": "src/index.js",
+  "version": "2.0.0",
+  "description": "EXBT HD wallet microservice — NestJS, EVM, per-user addresses",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "migrate": "node src/migrations/run.js",
-    "test": "jest --runInBand --forceExit",
-    "test:watch": "jest --watch --runInBand"
+    "build": "nest build",
+    "start": "node dist/main",
+    "start:dev": "nest start --watch",
+    "migrate": "node migrations/run.js"
   },
   "dependencies": {
-    "ethers": "^6.13.0",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.3.1",
-    "ioredis": "^5.4.1",
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/config": "^3.2.0",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/typeorm": "^10.0.2",
+    "typeorm": "^0.3.20",
     "pg": "^8.12.0",
-    "uuid": "^10.0.0",
+    "ethers": "^6.13.0",
+    "axios": "^1.7.0",
+    "class-validator": "^0.14.1",
+    "class-transformer": "^0.5.1",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.1",
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
-    "nodemon": "^3.1.4"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "testMatch": ["**/tests/**/*.test.js"],
-    "clearMocks": true,
-    "setupFiles": ["./tests/setup.js"]
+    "@nestjs/cli": "^10.3.0",
+    "@nestjs/schematics": "^10.1.0",
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.2"
   }
 }
