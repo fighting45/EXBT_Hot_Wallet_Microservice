@@ -25,9 +25,8 @@ export interface SweepResult {
 @Injectable()
 export class SweeperService implements OnModuleInit {
   private readonly logger = new Logger(SweeperService.name);
-  private provider: ethers.JsonRpcProvider;
-  private hotWallet: ethers.Wallet;
-  private hotWalletAddress: string;
+  private _provider: ethers.JsonRpcProvider;
+  private _hotWallet: ethers.Wallet;
 
   constructor(
     @InjectRepository(SweepTransaction)
@@ -35,22 +34,37 @@ export class SweeperService implements OnModuleInit {
     private walletService: WalletService,
     private encryptionService: EncryptionService,
     private configService: ConfigService,
-  ) {
-    const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
-    const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
-    this.provider  = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
+  ) {}
 
-    const hotWalletKey = this.configService.get<string>('EXBT_HOT_WALLET_KEY');
-    this.hotWallet     = new ethers.Wallet(hotWalletKey, this.provider);
-    this.hotWalletAddress = this.hotWallet.address;
+  private get provider(): ethers.JsonRpcProvider {
+    if (!this._provider) {
+      const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
+      const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
+      this._provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
+    }
+    return this._provider;
+  }
+
+  private get hotWallet(): ethers.Wallet {
+    if (!this._hotWallet) {
+      const key = this.configService.get<string>('EXBT_HOT_WALLET_KEY');
+      if (!key || key.startsWith('0x_YOUR')) throw new Error('EXBT_HOT_WALLET_KEY is not configured');
+      this._hotWallet = new ethers.Wallet(key, this.provider);
+    }
+    return this._hotWallet;
+  }
+
+  private get hotWalletAddress(): string {
+    return this.hotWallet.address;
   }
 
   async onModuleInit() {
-    if (!this.configService.get('EXBT_HOT_WALLET_KEY')) {
-      this.logger.warn('EXBT_HOT_WALLET_KEY not set — sweeper will not work');
+    const key = this.configService.get<string>('EXBT_HOT_WALLET_KEY');
+    if (!key || key.startsWith('0x_YOUR')) {
+      this.logger.warn('EXBT_HOT_WALLET_KEY not configured — sweeper and withdrawals will not work');
       return;
     }
-    this.logger.log(`Sweeper initialized — hot wallet: ${this.hotWalletAddress}`);
+    this.logger.log(`Sweeper initialized — hot wallet: ${this.hotWallet.address}`);
   }
 
   /**

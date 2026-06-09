@@ -19,10 +19,6 @@ export class GetAddressDto {
   encrypted_mnemonic: EncryptedMnemonicDto;
 
   @IsNumber()
-  @Min(0)
-  index: number;
-
-  @IsNumber()
   @Min(1)
   user_id: number;
 }

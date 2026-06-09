@@ -9,8 +9,8 @@ import { Withdrawal } from '../../entities';
 
 @Injectable()
 export class WithdrawalService {
-  private provider: ethers.JsonRpcProvider;
-  private hotWallet: ethers.Wallet;
+  private _provider: ethers.JsonRpcProvider;
+  private _hotWallet: ethers.Wallet;
   private laravelWebhookUrl: string;
   private laravelApiSecret: string;
 
@@ -19,15 +19,26 @@ export class WithdrawalService {
     private withdrawalRepo: Repository<Withdrawal>,
     private configService: ConfigService,
   ) {
-    const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
-    const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
-    this.provider  = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
-
-    const hotWalletKey = this.configService.get<string>('EXBT_HOT_WALLET_KEY');
-    this.hotWallet     = new ethers.Wallet(hotWalletKey, this.provider);
-
     this.laravelWebhookUrl = `${this.configService.get('LARAVEL_URL')}/api/v1/withdrawals/webhook`;
     this.laravelApiSecret  = this.configService.get<string>('LARAVEL_API_SECRET');
+  }
+
+  private get provider(): ethers.JsonRpcProvider {
+    if (!this._provider) {
+      const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
+      const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
+      this._provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
+    }
+    return this._provider;
+  }
+
+  private get hotWallet(): ethers.Wallet {
+    if (!this._hotWallet) {
+      const key = this.configService.get<string>('EXBT_HOT_WALLET_KEY');
+      if (!key || key.startsWith('0x_YOUR')) throw new Error('EXBT_HOT_WALLET_KEY is not configured');
+      this._hotWallet = new ethers.Wallet(key, this.provider);
+    }
+    return this._hotWallet;
   }
 
   async request(userId: number, toAddress: string, amount: string): Promise<Withdrawal> {

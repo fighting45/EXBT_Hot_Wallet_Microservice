@@ -1,13 +1,18 @@
 import { Controller, Post, Get, Body, HttpCode } from '@nestjs/common';
 import { WalletService } from './wallet.service';
 import { ListenerService } from '../listener/listener.service';
+import { EncryptionService } from '../encryption/encryption.service';
+import { ConfigService } from '@nestjs/config';
 import { GetAddressDto, ValidateAddressDto, ValidateMnemonicDto } from './dto/wallet.dto';
+
 
 @Controller('api/wallet')
 export class WalletController {
   constructor(
     private walletService: WalletService,
     private listenerService: ListenerService,
+    private encryptionService: EncryptionService,
+    private configService: ConfigService,
   ) {}
 
   @Get('health')
@@ -21,26 +26,29 @@ export class WalletController {
    */
   @Post('get-address')
   async getAddress(@Body() dto: GetAddressDto) {
-    const { walletAddress, isNew } = await this.walletService.getOrCreateAddress(
-      dto.encrypted_mnemonic,
-      dto.user_id,
-      dto.index,
-    );
+    try {
+      const { walletAddress, isNew } = await this.walletService.getOrCreateAddress(
+        dto.encrypted_mnemonic,
+        dto.user_id,
+        dto.user_id,  // index = user_id
+      );
 
-    // Register with listener so deposits are monitored immediately
-    if (isNew) {
-      this.listenerService.registerAddress(dto.user_id, walletAddress.address);
+      if (isNew) {
+        this.listenerService.registerAddress(dto.user_id, walletAddress.address);
+      }
+
+      return {
+        success:         true,
+        address:         walletAddress.address,
+        index:           walletAddress.derivationIndex,
+        derivation_path: `m/44'/60'/0'/0/${walletAddress.derivationIndex}`,
+        user_id:         dto.user_id,
+        is_new:          isNew,
+        monitoring:      true,
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
-
-    return {
-      success:          true,
-      address:          walletAddress.address,
-      index:            walletAddress.derivationIndex,
-      derivation_path:  `m/44'/60'/0'/0/${walletAddress.derivationIndex}`,
-      user_id:          dto.user_id,
-      is_new:           isNew,
-      monitoring:       true,
-    };
   }
 
   @Post('validate-address')
@@ -60,12 +68,27 @@ export class WalletController {
     };
   }
 
+  /**
+   * Generate a new mnemonic and return it encrypted.
+   * Laravel calls this once per user on registration.
+   * Laravel stores encrypted_mnemonic in its DB.
+   * Laravel shows plain mnemonic to user as backup phrase — never stores it plain.
+   */
+  /**
+   * ONE-TIME platform setup call.
+   * Generates a mnemonic, encrypts it immediately, returns only the encrypted blob.
+   * Plain mnemonic is never exposed. Laravel stores the blob and sends it
+   * back on every get-address call.
+   */
   @Post('generate-mnemonic')
   @HttpCode(200)
   generateMnemonic() {
+    const mnemonic          = this.walletService.generateMnemonic();
+    const masterPassword    = this.configService.get<string>('MASTER_PASSWORD');
+    const encryptedMnemonic = this.encryptionService.encrypt(mnemonic, masterPassword);
+
     return {
-      mnemonic: this.walletService.generateMnemonic(),
-      words:    12,
+      encrypted_mnemonic: encryptedMnemonic,
     };
   }
 }
