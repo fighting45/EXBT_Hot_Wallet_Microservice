@@ -29,8 +29,8 @@ import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
         password:   config.get('DB_PASSWORD'),
         database:   config.get('DB_DATABASE', 'exbotix_wallet'),
         entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal],
-        synchronize: false,
-        logging:    config.get('DB_LOGGING', 'false') === 'true',
+        synchronize: config.get('DB_SYNCHRONIZE', 'false') === 'true',
+        logging:     config.get('DB_LOGGING', 'false') === 'true',
       }),
     }),
 
