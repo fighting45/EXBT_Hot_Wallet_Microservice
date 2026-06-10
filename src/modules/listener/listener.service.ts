@@ -25,12 +25,14 @@ export class ListenerService {
   ) {
     const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
     const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
-
     this.provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
+
     this.laravelWebhookUrl = `${this.configService.get('LARAVEL_URL')}/api/v1/deposits/webhook`;
     this.laravelApiSecret  = this.configService.get<string>('LARAVEL_API_SECRET');
-    this.pollIntervalMs    = parseInt(this.configService.get<string>('SCANNER_POLL_INTERVAL_MS', '12000'));
+    this.pollIntervalMs    = parseInt(this.configService.get<string>('SCANNER_POLL_INTERVAL_MS', '60000'));
   }
+
+  // ─── Lifecycle ────────────────────────────────────────────────────────────
 
   async startListener(addresses: Array<{ user_id: number; address: string }>) {
     if (this.isRunning) {
@@ -44,14 +46,15 @@ export class ListenerService {
     }
 
     this.isRunning = true;
-    console.log(`[Listener] Starting — monitoring ${addresses.length} addresses`);
+    console.log(`[Listener] Starting — monitoring ${this.monitoredAddresses.size} addresses`);
 
     while (true) {
       try {
-        await this.scanBlocks();
+        await this.checkDeposits();
       } catch (err) {
-        console.error('[Listener] Scan error:', err.message);
+        console.error('[Listener] Poll error:', err.message);
       }
+      console.log(`[Listener] Next check in ${this.pollIntervalMs / 1000}s`);
       await this.sleep(this.pollIntervalMs);
     }
   }
@@ -72,19 +75,27 @@ export class ListenerService {
     }
   }
 
-  // ─── Block scanning ───────────────────────────────────────────────────────
+  // ─── Core logic ───────────────────────────────────────────────────────────
 
-  private async scanBlocks() {
+  private async checkDeposits() {
+    if (this.monitoredAddresses.size === 0) return;
+
+    const latest = await this.withRetry(
+      () => this.provider.getBlockNumber(),
+      'getBlockNumber',
+    );
+
     const cursor = await this.getCursor();
-    const latest = await this.withRetry(() => this.provider.getBlockNumber(), 'getBlockNumber');
-
     if (cursor >= latest) return;
 
-    // Cap at 50 blocks per tick to avoid blocking the poll loop
     const from = cursor + 1;
-    const to   = Math.min(latest, cursor + 50);
+    const to   = Math.min(latest, cursor + 50); // max 50 blocks per tick — catches up gradually
 
-    console.log(`[Listener] Scanning blocks ${from}–${to} (${this.monitoredAddresses.size} addresses watched)`);
+    if (from < latest - 50) {
+      console.log(`[Listener] Catching up — ${latest - cursor} blocks behind, processing ${from}–${to}...`);
+    } else {
+      console.log(`[Listener] Checking blocks ${from}–${to} for ${this.monitoredAddresses.size} addresses...`);
+    }
 
     for (let blockNum = from; blockNum <= to; blockNum++) {
       let block: any;
@@ -119,22 +130,27 @@ export class ListenerService {
         continue;
       }
 
-      if (!tx?.to) continue;
+      if (!tx?.to || !tx.value || tx.value === 0n) continue;
+
       const toLower = tx.to.toLowerCase();
       if (!this.monitoredAddresses.has(toLower)) continue;
-      if (!tx.value || tx.value === 0n) continue;
+
+      // ── Same pattern as TRX: check processed_deposits by txHash ──
+      const alreadyProcessed = await this.processedDepositRepo.findOne({
+        where: { txHash: tx.hash },
+      });
+      if (alreadyProcessed) continue;
 
       const userId = this.monitoredAddresses.get(toLower);
       await this.processDeposit(tx, block.number, userId).catch(err =>
-        console.error(`[Listener] Error processing ${txHash}:`, err.message),
+        console.error(`[Listener] Error processing ${tx.hash}:`, err.message),
       );
     }
   }
 
-  private async processDeposit(tx: any, blockNumber: number, userId: number) {
-    const existing = await this.processedDepositRepo.findOne({ where: { txHash: tx.hash } });
-    if (existing) return;
+  // ─── Deposit processing & webhook ─────────────────────────────────────────
 
+  private async processDeposit(tx: any, blockNumber: number, userId: number) {
     const amount = ethers.formatEther(tx.value);
 
     const payload = {
@@ -150,19 +166,6 @@ export class ListenerService {
       timestamp:    Math.floor(Date.now() / 1000),
     };
 
-    await this.notifyLaravel(payload, tx.hash, userId, tx.to?.toLowerCase(), amount, blockNumber);
-  }
-
-  // ─── Laravel webhook ─────────────────────────────────────────────────────
-
-  private async notifyLaravel(
-    payload: any,
-    txHash: string,
-    userId: number,
-    address: string,
-    amount: string,
-    blockNumber: number,
-  ) {
     const jsonPayload = JSON.stringify(payload);
     const signature   = crypto
       .createHmac('sha256', this.laravelApiSecret)
@@ -175,29 +178,30 @@ export class ListenerService {
         timeout: 10000,
       });
 
-      // Save only after successful webhook — retry on next cycle if webhook fails
+      // Save to processed_deposits ONLY after successful webhook
+      // Same pattern as TRX — if webhook fails, not saved, retried next cycle
       await this.processedDepositRepo.save(
         this.processedDepositRepo.create({
-          txHash,
+          txHash:      tx.hash,
           userId,
-          address,
+          address:     tx.to?.toLowerCase(),
           amount,
           blockNumber,
         }),
       );
 
-      console.log(`[Listener] Credited ${amount} EXBT to user ${userId} — tx ${txHash.slice(0, 12)}...`);
+      console.log(`[Listener] Credited ${amount} EXBT to user ${userId} — tx ${tx.hash.slice(0, 12)}...`);
     } catch (err) {
       console.error('[Listener] Webhook failed:', err.message, '— will retry next cycle');
+      // Not saved to processed_deposits → retried on next cycle
     }
   }
 
-  // ─── Cursor helpers ───────────────────────────────────────────────────────
+  // ─── Cursor ───────────────────────────────────────────────────────────────
 
   private async getCursor(): Promise<number> {
     const startBlock = parseInt(this.configService.get<string>('SCANNER_START_BLOCK', '0'));
     if (startBlock > 0) return startBlock - 1;
-
     const state = await this.networkSyncStateRepo.findOne({ where: { network: 'exbt' } });
     return state ? Number(state.lastProcessedBlock) : 0;
   }
