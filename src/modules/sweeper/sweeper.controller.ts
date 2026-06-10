@@ -18,7 +18,12 @@ export class SweeperController {
 
   @Post('execute')
   execute(@Body() dto: ExecuteSweepDto) {
-    return this.sweeperService.executeSweep(dto.encrypted_mnemonic, dto.addresses);
+    return this.sweeperService.executeSweep(
+      dto.encrypted_mnemonic,
+      dto.start_index,
+      dto.end_index,
+      dto.min_balance,
+    );
   }
 
   @Get('status/:txHash')

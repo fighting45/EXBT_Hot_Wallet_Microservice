@@ -26,8 +26,14 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/wallet/health",
-              "host": ["{{base_url}}"],
-              "path": ["api", "wallet", "health"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "wallet",
+                "health"
+              ]
             },
             "description": "Check if the service is running"
           },
@@ -50,17 +56,30 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/wallet/get-address",
-              "host": ["{{base_url}}"],
-              "path": ["api", "wallet", "get-address"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "wallet",
+                "get-address"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"encrypted_mnemonic\": {\n    \"encrypted\": \"YOUR_ENCRYPTED_HEX\",\n    \"iv\": \"YOUR_IV_HEX\",\n    \"salt\": \"YOUR_SALT_HEX\",\n    \"authTag\": \"YOUR_AUTH_TAG_HEX\"\n  },\n  \"index\": 0,\n  \"user_id\": 1\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "Generate a unique EVM deposit address for a user using HD wallet derivation (BIP44 m/44'/60'/0'/0/index). Returns the same address on repeated calls for the same user_id. Automatically registers address for deposit monitoring."
           },
@@ -84,17 +103,30 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/wallet/validate-address",
-              "host": ["{{base_url}}"],
-              "path": ["api", "wallet", "validate-address"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "wallet",
+                "validate-address"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"address\": \"0x742d35Cc6634C0532925a3b8D4C9A5DA0E0B8b9F\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "Validate an EVM address format. Use before processing user withdrawal addresses."
           },
@@ -118,17 +150,30 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/wallet/validate-mnemonic",
-              "host": ["{{base_url}}"],
-              "path": ["api", "wallet", "validate-mnemonic"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "wallet",
+                "validate-mnemonic"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"mnemonic\": \"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "Validate a BIP39 mnemonic phrase."
           },
@@ -146,34 +191,6 @@
               "body": "{\n  \"valid\": false\n}"
             }
           ]
-        },
-        {
-          "name": "Generate Mnemonic",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/wallet/generate-mnemonic",
-              "host": ["{{base_url}}"],
-              "path": ["api", "wallet", "generate-mnemonic"]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "description": "Generate a new random 12-word BIP39 mnemonic. Use this for testing only — in production Laravel generates and encrypts the mnemonic."
-          },
-          "response": [
-            {
-              "name": "Success",
-              "status": "OK",
-              "code": 200,
-              "body": "{\n  \"mnemonic\": \"word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12\",\n  \"words\": 12\n}"
-            }
-          ]
         }
       ]
     },
@@ -185,17 +202,30 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/sweeper/estimate",
-              "host": ["{{base_url}}"],
-              "path": ["api", "sweeper", "estimate"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "sweeper",
+                "estimate"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"encrypted_mnemonic\": {\n    \"encrypted\": \"YOUR_ENCRYPTED_HEX\",\n    \"iv\": \"YOUR_IV_HEX\",\n    \"salt\": \"YOUR_SALT_HEX\",\n    \"authTag\": \"YOUR_AUTH_TAG_HEX\"\n  },\n  \"start_index\": 0,\n  \"end_index\": 100,\n  \"min_balance\": \"0.001\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "Phase 1 of sweep. Scans derived addresses from start_index to end_index and returns those with balance above min_balance. Review the result before calling execute."
           },
@@ -213,17 +243,30 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/sweeper/execute",
-              "host": ["{{base_url}}"],
-              "path": ["api", "sweeper", "execute"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "sweeper",
+                "execute"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"encrypted_mnemonic\": {\n    \"encrypted\": \"YOUR_ENCRYPTED_HEX\",\n    \"iv\": \"YOUR_IV_HEX\",\n    \"salt\": \"YOUR_SALT_HEX\",\n    \"authTag\": \"YOUR_AUTH_TAG_HEX\"\n  },\n  \"addresses\": [\n    { \"address\": \"0x...\", \"index\": 0, \"balance\": \"1.5\" },\n    { \"address\": \"0x...\", \"index\": 3, \"balance\": \"0.75\" }\n  ]\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "Phase 2 of sweep. Executes the actual sweep for each address: (1) hot wallet funds gas to user address, (2) user address sends all EXBT to hot wallet. Processes sequentially with 2s delay between each."
           },
@@ -242,8 +285,15 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/sweeper/status/0xYOUR_TX_HASH_HERE",
-              "host": ["{{base_url}}"],
-              "path": ["api", "sweeper", "status", "0xYOUR_TX_HASH_HERE"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "sweeper",
+                "status",
+                "0xYOUR_TX_HASH_HERE"
+              ]
             },
             "description": "Get the status of a specific sweep transaction by tx hash."
           },
@@ -266,17 +316,30 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/withdrawal/request",
-              "host": ["{{base_url}}"],
-              "path": ["api", "withdrawal", "request"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "withdrawal",
+                "request"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"user_id\": 1,\n  \"to_address\": \"0x742d35Cc6634C0532925a3b8D4C9A5DA0E0B8b9F\",\n  \"amount\": \"10\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "Request a withdrawal from the hot wallet. Laravel should deduct the user balance BEFORE calling this. Returns immediately with withdrawal_id — broadcast happens asynchronously. Laravel receives result via webhook."
           },
@@ -301,8 +364,15 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/withdrawal/YOUR_WITHDRAWAL_ID_HERE/status",
-              "host": ["{{base_url}}"],
-              "path": ["api", "withdrawal", "YOUR_WITHDRAWAL_ID_HERE", "status"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "withdrawal",
+                "YOUR_WITHDRAWAL_ID_HERE",
+                "status"
+              ]
             },
             "description": "Poll withdrawal status by ID. Status flow: pending → processing → completed | failed."
           },
@@ -337,18 +407,36 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Signature", "value": "hmac_sha256_of_body", "description": "HMAC-SHA256 of raw JSON body using LARAVEL_API_SECRET" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Signature",
+                "value": "hmac_sha256_of_body",
+                "description": "HMAC-SHA256 of raw JSON body using LARAVEL_API_SECRET"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/v1/deposits/webhook",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "deposits", "webhook"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "deposits",
+                "webhook"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"user_id\": 1,\n  \"network\": \"exbt\",\n  \"coin_symbol\": \"EXBT\",\n  \"amount\": 10.5,\n  \"from_address\": \"0xsender...\",\n  \"to_address\": \"0xrecipient...\",\n  \"tx_hash\": \"0xabc123...\",\n  \"confirmations\": 1,\n  \"block_number\": 576000,\n  \"timestamp\": 1234567890\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "FOR REFERENCE ONLY — this is what the wallet service sends TO Laravel when a deposit is detected. Implement this endpoint in Laravel."
           }
@@ -358,18 +446,36 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Signature", "value": "hmac_sha256_of_body", "description": "HMAC-SHA256 of raw JSON body using LARAVEL_API_SECRET" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Signature",
+                "value": "hmac_sha256_of_body",
+                "description": "HMAC-SHA256 of raw JSON body using LARAVEL_API_SECRET"
+              }
             ],
             "url": {
               "raw": "{{base_url}}/api/v1/withdrawals/webhook",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "withdrawals", "webhook"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "withdrawals",
+                "webhook"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"event\": \"withdrawal.completed\",\n  \"user_id\": 1,\n  \"withdrawal_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"amount\": \"10\",\n  \"tx_hash\": \"0xabc123...\",\n  \"gas_fee\": \"0.000441\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "FOR REFERENCE ONLY — sent to Laravel on withdrawal.completed or withdrawal.failed. On failed: body has 'error' field instead of 'tx_hash' and 'gas_fee'."
           }

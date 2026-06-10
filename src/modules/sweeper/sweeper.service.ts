@@ -117,25 +117,43 @@ export class SweeperService implements OnModuleInit {
   }
 
   /**
-   * Execute sweeps for a list of addresses.
-   * Phase 2 — processes each address sequentially.
+   * Scan addresses for balance then sweep all to hot wallet automatically.
+   * Single call — no need to pass addresses manually.
    */
   async executeSweep(
     encryptedMnemonic: EncryptedData,
-    addresses: AddressWithBalance[],
-  ): Promise<SweepResult[]> {
+    startIndex: number,
+    endIndex: number,
+    minBalance = '0.001',
+  ): Promise<{ scanned: number; swept: number; results: SweepResult[] }> {
     const masterPassword = this.configService.get<string>('MASTER_PASSWORD');
     const mnemonic       = this.encryptionService.decrypt(encryptedMnemonic, masterPassword);
+    const minWei         = ethers.parseEther(minBalance);
+
+    this.logger.log(`Scanning addresses ${startIndex}–${endIndex} then sweeping to hot wallet...`);
 
     const results: SweepResult[] = [];
+    let scanned = 0;
 
-    for (const { address, index, balance } of addresses) {
-      const result = await this.sweepAddress(mnemonic, address, index, balance);
-      results.push(result);
-      await this.sleep(2000);
+    for (let i = startIndex; i < endIndex; i++) {
+      scanned++;
+      try {
+        const { address } = this.walletService.deriveWallet(mnemonic, i);
+        const balance      = await this.provider.getBalance(address);
+
+        if (balance <= minWei) continue;
+
+        this.logger.log(`Found balance ${ethers.formatEther(balance)} EXBT at index ${i} — sweeping...`);
+        const result = await this.sweepAddress(mnemonic, address, i, ethers.formatEther(balance));
+        results.push(result);
+        await this.sleep(2000);
+      } catch (err) {
+        this.logger.error(`Error at index ${i}: ${err.message}`);
+      }
     }
 
-    return results;
+    this.logger.log(`Sweep complete — scanned ${scanned} addresses, swept ${results.length}`);
+    return { scanned, swept: results.length, results };
   }
 
   private async sweepAddress(

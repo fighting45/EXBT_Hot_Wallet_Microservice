@@ -21,16 +21,16 @@ export class EstimateSweepDto {
   min_balance?: string;
 }
 
-export class AddressToSweepDto {
-  @IsString() address: string;
-  @IsNumber() index: number;
-  @IsString() balance: string;
-}
-
 export class ExecuteSweepDto {
   @IsObject()
   encrypted_mnemonic: EncryptedMnemonicDto;
 
-  @IsArray()
-  addresses: AddressToSweepDto[];
+  @IsNumber() @Min(0)
+  start_index: number;
+
+  @IsNumber() @Min(1)
+  end_index: number;
+
+  @IsOptional() @IsString()
+  min_balance?: string;
 }
