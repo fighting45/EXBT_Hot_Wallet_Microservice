@@ -21,6 +21,12 @@ export class ProcessedDeposit {
   @Column({ name: 'block_number', type: 'bigint' })
   blockNumber: number;
 
+  @Column({ type: 'varchar', length: 20, default: 'processed' })
+  status: string; // 'pending' | 'processed'
+
+  @Column({ name: 'raw_payload', type: 'text', nullable: true })
+  rawPayload: string;
+
   @CreateDateColumn({ name: 'processed_at' })
   processedAt: Date;
 }

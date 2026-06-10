@@ -50,6 +50,7 @@ export class ListenerService {
 
     while (true) {
       try {
+        await this.retryPendingWebhooks(); // retry failed webhooks first
         await this.checkDeposits();
       } catch (err) {
         console.error('[Listener] Poll error:', err.message);
@@ -153,6 +154,8 @@ export class ListenerService {
   private async processDeposit(tx: any, blockNumber: number, userId: number) {
     const amount = ethers.formatEther(tx.value);
 
+    console.log(`[Listener] Deposit detected — ${amount} EXBT to user ${userId} — tx ${tx.hash.slice(0, 12)}...`);
+
     const payload = {
       user_id:      userId,
       network:      'exbt',
@@ -167,7 +170,26 @@ export class ListenerService {
     };
 
     const jsonPayload = JSON.stringify(payload);
-    const signature   = crypto
+
+    // Save to DB first with status='pending' — cursor already moved forward
+    // so we must persist before attempting webhook to avoid losing on restart
+    await this.processedDepositRepo.save(
+      this.processedDepositRepo.create({
+        txHash:      tx.hash,
+        userId,
+        address:     tx.to?.toLowerCase(),
+        amount,
+        blockNumber,
+        status:      'pending',
+        rawPayload:  jsonPayload,
+      }),
+    );
+
+    await this.sendWebhook(tx.hash, jsonPayload);
+  }
+
+  private async sendWebhook(txHash: string, jsonPayload: string) {
+    const signature = crypto
       .createHmac('sha256', this.laravelApiSecret)
       .update(jsonPayload)
       .digest('hex');
@@ -178,22 +200,24 @@ export class ListenerService {
         timeout: 10000,
       });
 
-      // Save to processed_deposits ONLY after successful webhook
-      // Same pattern as TRX — if webhook fails, not saved, retried next cycle
-      await this.processedDepositRepo.save(
-        this.processedDepositRepo.create({
-          txHash:      tx.hash,
-          userId,
-          address:     tx.to?.toLowerCase(),
-          amount,
-          blockNumber,
-        }),
-      );
+      // Mark as processed after successful webhook
+      await this.processedDepositRepo.update({ txHash }, { status: 'processed' });
 
-      console.log(`[Listener] Credited ${amount} EXBT to user ${userId} — tx ${tx.hash.slice(0, 12)}...`);
+      const payload = JSON.parse(jsonPayload);
+      console.log(`[Listener] Webhook sent — ${payload.amount} EXBT to user ${payload.user_id}`);
     } catch (err) {
-      console.error('[Listener] Webhook failed:', err.message, '— will retry next cycle');
-      // Not saved to processed_deposits → retried on next cycle
+      console.error(`[Listener] Webhook failed for ${txHash.slice(0, 12)}: ${err.message} — will retry next cycle`);
+      // Status stays 'pending' → picked up by retryPendingWebhooks next cycle
+    }
+  }
+
+  private async retryPendingWebhooks() {
+    const pending = await this.processedDepositRepo.find({ where: { status: 'pending' } });
+    if (pending.length === 0) return;
+
+    console.log(`[Listener] Retrying ${pending.length} pending webhook(s)...`);
+    for (const deposit of pending) {
+      await this.sendWebhook(deposit.txHash, deposit.rawPayload);
     }
   }
 
