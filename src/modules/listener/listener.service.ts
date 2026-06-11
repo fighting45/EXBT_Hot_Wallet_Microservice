@@ -106,9 +106,10 @@ export class ListenerService {
           `getBlock(${blockNum})`,
         );
       } catch (err) {
-        console.error(`[Listener] Skipping block ${blockNum}: ${err.message}`);
-        await this.updateCursor(blockNum);
-        continue;
+        // Do NOT move cursor forward on RPC failure
+        // Block will be retried on next cycle
+        console.error(`[Listener] RPC error on block ${blockNum}: ${err.message} — will retry next cycle`);
+        return;
       }
 
       if (block?.transactions?.length > 0) {
