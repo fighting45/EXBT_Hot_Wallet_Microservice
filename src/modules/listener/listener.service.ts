@@ -112,7 +112,12 @@ export class ListenerService {
         return;
       }
 
-      if (block?.transactions?.length > 0) {
+      if (!block) {
+        console.warn(`[Listener] Block ${blockNum} returned null — will retry next cycle`);
+        return; // stop this tick, retry same block next cycle
+      }
+
+      if (block.transactions?.length > 0) {
         await this.processBlock(block);
       }
 
