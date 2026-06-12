@@ -15,6 +15,7 @@ export class ListenerService {
   private laravelWebhookUrl: string;
   private laravelApiSecret: string;
   private pollIntervalMs: number;
+  private confirmationDepth: number;
 
   constructor(
     @InjectRepository(ProcessedDeposit)
@@ -29,9 +30,10 @@ export class ListenerService {
     const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
     this.provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
 
-    this.laravelWebhookUrl = `${this.configService.get('LARAVEL_URL')}/api/v1/deposits/webhook`;
-    this.laravelApiSecret  = this.configService.get<string>('LARAVEL_API_SECRET');
-    this.pollIntervalMs    = parseInt(this.configService.get<string>('SCANNER_POLL_INTERVAL_MS', '60000'));
+    this.laravelWebhookUrl    = `${this.configService.get('LARAVEL_URL')}/api/v1/deposits/webhook`;
+    this.laravelApiSecret     = this.configService.get<string>('LARAVEL_API_SECRET');
+    this.pollIntervalMs       = parseInt(this.configService.get<string>('SCANNER_POLL_INTERVAL_MS', '60000'));
+    this.confirmationDepth    = parseInt(this.configService.get<string>('SCANNER_CONFIRMATION_DEPTH', '12'));
   }
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────
@@ -83,21 +85,22 @@ export class ListenerService {
   private async checkDeposits() {
     if (this.monitoredAddresses.size === 0) return;
 
-    const latest = await this.withRetry(
+    const latest     = await this.withRetry(
       () => this.provider.getBlockNumber(),
       'getBlockNumber',
     );
+    const safeLatest = latest - this.confirmationDepth;
 
     const cursor = await this.getCursor();
-    if (cursor >= latest) return;
+    if (cursor >= safeLatest) return;
 
     const from = cursor + 1;
-    const to   = Math.min(latest, cursor + 50); // max 50 blocks per tick — catches up gradually
+    const to   = Math.min(safeLatest, cursor + 50); // max 50 blocks per tick — catches up gradually
 
-    if (from < latest - 50) {
-      console.log(`[Listener] Catching up — ${latest - cursor} blocks behind, processing ${from}–${to}...`);
+    if (from < safeLatest - 50) {
+      console.log(`[Listener] Catching up — ${safeLatest - cursor} blocks behind, processing ${from}–${to}...`);
     } else {
-      console.log(`[Listener] Checking blocks ${from}–${to} for ${this.monitoredAddresses.size} addresses...`);
+      console.log(`[Listener] Checking blocks ${from}–${to} (confirmed, ${this.confirmationDepth} behind head) for ${this.monitoredAddresses.size} addresses...`);
     }
 
     for (let blockNum = from; blockNum <= to; blockNum++) {
