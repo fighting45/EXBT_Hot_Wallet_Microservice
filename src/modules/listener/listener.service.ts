@@ -92,6 +92,7 @@ export class ListenerService {
     const safeLatest = latest - this.confirmationDepth;
 
     const cursor = await this.getCursor();
+    console.log(`[Listener] state — cursor=${cursor} latest=${latest} safeLatest=${safeLatest} depth=${this.confirmationDepth}`);
     if (cursor >= safeLatest) return;
 
     const from = cursor + 1;
