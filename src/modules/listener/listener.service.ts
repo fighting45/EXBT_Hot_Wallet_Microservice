@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { ethers } from 'ethers';
 import * as crypto from 'crypto';
 import axios from 'axios';
-import { ProcessedDeposit, NetworkSyncState } from '../../entities';
+import { ProcessedDeposit, NetworkSyncState, ScannedBlock } from '../../entities';
 
 @Injectable()
 export class ListenerService {
@@ -21,6 +21,8 @@ export class ListenerService {
     private processedDepositRepo: Repository<ProcessedDeposit>,
     @InjectRepository(NetworkSyncState)
     private networkSyncStateRepo: Repository<NetworkSyncState>,
+    @InjectRepository(ScannedBlock)
+    private scannedBlockRepo: Repository<ScannedBlock>,
     private configService: ConfigService,
   ) {
     const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
@@ -117,15 +119,25 @@ export class ListenerService {
         return; // stop this tick, retry same block next cycle
       }
 
-      if (block.transactions?.length > 0) {
-        await this.processBlock(block);
-      }
+      const depositCount = block.transactions?.length > 0
+        ? await this.processBlock(block)
+        : 0;
+
+      await this.scannedBlockRepo.save(
+        this.scannedBlockRepo.create({
+          blockNumber:  blockNum,
+          txCount:      block.transactions?.length ?? 0,
+          depositCount,
+        }),
+      );
 
       await this.updateCursor(blockNum);
     }
   }
 
-  private async processBlock(block: any) {
+  private async processBlock(block: any): Promise<number> {
+    let depositCount = 0;
+
     for (const txHash of block.transactions) {
       let tx: any;
       try {
@@ -142,7 +154,6 @@ export class ListenerService {
       const toLower = tx.to.toLowerCase();
       if (!this.monitoredAddresses.has(toLower)) continue;
 
-      // ── Same pattern as TRX: check processed_deposits by txHash ──
       const alreadyProcessed = await this.processedDepositRepo.findOne({
         where: { txHash: tx.hash },
       });
@@ -152,7 +163,10 @@ export class ListenerService {
       await this.processDeposit(tx, block.number, userId).catch(err =>
         console.error(`[Listener] Error processing ${tx.hash}:`, err.message),
       );
+      depositCount++;
     }
+
+    return depositCount;
   }
 
   // ─── Deposit processing & webhook ─────────────────────────────────────────
