@@ -26,6 +26,12 @@ export class Withdrawal {
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage: string;
 
+  @Column({ name: 'webhook_status', type: 'varchar', length: 20, default: 'pending' })
+  webhookStatus: string;
+
+  @Column({ name: 'webhook_error', type: 'text', nullable: true })
+  webhookError: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -8,7 +8,7 @@ import axios from 'axios';
 import { Withdrawal } from '../../entities';
 
 @Injectable()
-export class WithdrawalService {
+export class WithdrawalService implements OnModuleInit {
   private _provider: ethers.JsonRpcProvider;
   private _hotWallet: ethers.Wallet;
   private laravelWebhookUrl: string;
@@ -39,6 +39,58 @@ export class WithdrawalService {
       this._hotWallet = new ethers.Wallet(key, this.provider);
     }
     return this._hotWallet;
+  }
+
+  onModuleInit() {
+    this.startRetryLoop().catch(err =>
+      console.error('[Withdrawal] Retry loop crashed:', err.message),
+    );
+  }
+
+  private async startRetryLoop() {
+    while (true) {
+      await this.sleep(60_000);
+      try {
+        await this.retryPendingWebhooks();
+      } catch (err) {
+        console.error('[Withdrawal] Retry error:', err.message);
+      }
+    }
+  }
+
+  private async retryPendingWebhooks() {
+    const pending = await this.withdrawalRepo.find({
+      where: [
+        { webhookStatus: 'pending', status: 'completed' },
+        { webhookStatus: 'pending', status: 'failed' },
+      ],
+    });
+    if (pending.length === 0) return;
+
+    console.log(`[Withdrawal] Retrying ${pending.length} pending webhook(s)...`);
+    for (const w of pending) {
+      await this.notifyLaravel(w.id, this.buildPayload(w));
+    }
+  }
+
+  private buildPayload(w: Withdrawal): object {
+    if (w.status === 'completed') {
+      return {
+        event:         'withdrawal.completed',
+        user_id:       w.userId,
+        withdrawal_id: w.id,
+        amount:        w.amount,
+        tx_hash:       w.txHash,
+        gas_fee:       w.gasFee,
+      };
+    }
+    return {
+      event:         'withdrawal.failed',
+      user_id:       w.userId,
+      withdrawal_id: w.id,
+      amount:        w.amount,
+      error:         w.errorMessage,
+    };
   }
 
   async request(userId: number, toAddress: string, amount: string): Promise<Withdrawal> {
@@ -110,7 +162,7 @@ export class WithdrawalService {
         completedAt: new Date(),
       });
 
-      await this.notifyLaravel({
+      await this.notifyLaravel(withdrawalId, {
         event:         'withdrawal.completed',
         user_id:       withdrawal.userId,
         withdrawal_id: withdrawal.id,
@@ -128,7 +180,7 @@ export class WithdrawalService {
         errorMessage: err.message,
       });
 
-      await this.notifyLaravel({
+      await this.notifyLaravel(withdrawalId, {
         event:         'withdrawal.failed',
         user_id:       withdrawal.userId,
         withdrawal_id: withdrawal.id,
@@ -140,7 +192,7 @@ export class WithdrawalService {
 
   // ─── Laravel webhook ─────────────────────────────────────────────────────
 
-  private async notifyLaravel(payload: any) {
+  private async notifyLaravel(withdrawalId: string, payload: object) {
     const jsonPayload = JSON.stringify(payload);
     const signature   = crypto
       .createHmac('sha256', this.laravelApiSecret)
@@ -152,8 +204,15 @@ export class WithdrawalService {
         headers: { 'X-Signature': signature, 'Content-Type': 'application/json' },
         timeout: 10000,
       });
+      await this.withdrawalRepo.update(withdrawalId, { webhookStatus: 'delivered' });
+      console.log(`[Withdrawal] Webhook delivered for ${withdrawalId}`);
     } catch (err) {
-      console.error('[Withdrawal] Webhook failed:', err.message);
+      console.error(`[Withdrawal] Webhook failed for ${withdrawalId}: ${err.message} — will retry in 60s`);
+      await this.withdrawalRepo.update(withdrawalId, { webhookError: err.message });
     }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(r => setTimeout(r, ms));
   }
 }
