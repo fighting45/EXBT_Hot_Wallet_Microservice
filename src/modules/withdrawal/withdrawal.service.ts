@@ -199,14 +199,44 @@ export class WithdrawalService implements OnModuleInit {
       .update(jsonPayload)
       .digest('hex');
 
+    console.log(
+      `[Withdrawal][WEBHOOK] Sending withdrawal webhook\n` +
+      `  URL:           ${this.laravelWebhookUrl}\n` +
+      `  Withdrawal ID: ${withdrawalId}\n` +
+      `  Payload:       ${jsonPayload}`
+    );
+
     try {
-      await axios.post(this.laravelWebhookUrl, jsonPayload, {
+      const response = await axios.post(this.laravelWebhookUrl, jsonPayload, {
         headers: { 'X-Signature': signature, 'Content-Type': 'application/json' },
         timeout: 10000,
       });
+
+      console.log(
+        `[Withdrawal][WEBHOOK] Withdrawal webhook success\n` +
+        `  URL:           ${this.laravelWebhookUrl}\n` +
+        `  Withdrawal ID: ${withdrawalId}\n` +
+        `  Status:        ${response.status} ${response.statusText}\n` +
+        `  Body:          ${JSON.stringify(response.data)}`
+      );
+
       await this.withdrawalRepo.update(withdrawalId, { webhookStatus: 'delivered' });
       console.log(`[Withdrawal] Webhook delivered for ${withdrawalId}`);
     } catch (err) {
+      const httpStatus  = err.response?.status;
+      const httpBody    = err.response?.data;
+      const httpHeaders = err.response?.headers;
+
+      console.error(
+        `[Withdrawal][WEBHOOK] Withdrawal webhook FAILED\n` +
+        `  URL:              ${this.laravelWebhookUrl}\n` +
+        `  Withdrawal ID:    ${withdrawalId}\n` +
+        `  Error:            ${err.message}\n` +
+        `  HTTP Status:      ${httpStatus ?? 'no response'}\n` +
+        `  Response Body:    ${httpBody ? JSON.stringify(httpBody) : 'none'}\n` +
+        `  Response Headers: ${httpHeaders ? JSON.stringify(httpHeaders) : 'none'}\n` +
+        `  Payload:          ${jsonPayload}`
+      );
       console.error(`[Withdrawal] Webhook failed for ${withdrawalId}: ${err.message} — will retry in 60s`);
       await this.withdrawalRepo.update(withdrawalId, { webhookError: err.message });
     }

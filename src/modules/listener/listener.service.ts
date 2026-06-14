@@ -218,11 +218,26 @@ export class ListenerService {
       .update(jsonPayload)
       .digest('hex');
 
+    console.log(
+      `[Listener][WEBHOOK] Sending deposit webhook\n` +
+      `  URL:     ${this.laravelWebhookUrl}\n` +
+      `  TX Hash: ${txHash}\n` +
+      `  Payload: ${jsonPayload}`
+    );
+
     try {
-      await axios.post(this.laravelWebhookUrl, jsonPayload, {
+      const response = await axios.post(this.laravelWebhookUrl, jsonPayload, {
         headers: { 'X-Signature': signature, 'Content-Type': 'application/json' },
         timeout: 10000,
       });
+
+      console.log(
+        `[Listener][WEBHOOK] Deposit webhook success\n` +
+        `  URL:    ${this.laravelWebhookUrl}\n` +
+        `  Status: ${response.status} ${response.statusText}\n` +
+        `  TX:     ${txHash}\n` +
+        `  Body:   ${JSON.stringify(response.data)}`
+      );
 
       // Mark as processed after successful webhook
       await this.processedDepositRepo.update({ txHash }, { status: 'processed' });
@@ -230,7 +245,20 @@ export class ListenerService {
       const payload = JSON.parse(jsonPayload);
       console.log(`[Listener] Webhook sent — ${payload.amount} EXBT to user ${payload.user_id}`);
     } catch (err) {
-      console.error(`[Listener] Webhook failed for ${txHash.slice(0, 12)}: ${err.message} — will retry next cycle`);
+      const httpStatus  = err.response?.status;
+      const httpBody    = err.response?.data;
+      const httpHeaders = err.response?.headers;
+
+      console.error(
+        `[Listener][WEBHOOK] Deposit webhook FAILED\n` +
+        `  URL:              ${this.laravelWebhookUrl}\n` +
+        `  TX Hash:          ${txHash}\n` +
+        `  Error:            ${err.message}\n` +
+        `  HTTP Status:      ${httpStatus ?? 'no response'}\n` +
+        `  Response Body:    ${httpBody ? JSON.stringify(httpBody) : 'none'}\n` +
+        `  Response Headers: ${httpHeaders ? JSON.stringify(httpHeaders) : 'none'}\n` +
+        `  Payload:          ${jsonPayload}`
+      );
       // Status stays 'pending' → picked up by retryPendingWebhooks next cycle
     }
   }
