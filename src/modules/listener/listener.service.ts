@@ -126,12 +126,13 @@ export class ListenerService {
         ? await this.processBlock(block)
         : 0;
 
-      await this.scannedBlockRepo.save(
-        this.scannedBlockRepo.create({
+      await this.scannedBlockRepo.upsert(
+        {
           blockNumber:  blockNum,
           txCount:      block.transactions?.length ?? 0,
           depositCount,
-        }),
+        },
+        ['blockNumber'],
       );
 
       await this.updateCursor(blockNum);
