@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { LbankClient } from './lbank/lbank.client';
 import { KucoinMapper } from './mappers/kucoin.mapper';
 import { TradingPair } from '../../entities';
-import { LbankTicker } from './lbank/lbank.types';
+import { LbankTicker, LbankDepth } from './lbank/lbank.types';
 
 interface CacheEntry { value: any; expires: number; }
 

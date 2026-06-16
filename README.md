@@ -134,6 +134,71 @@ npm test
 - `WithdrawalService`: double-spend prevention, broadcast failure + refund
 - `DepositScanner`: duplicate tx rejection, unidentified deposit handling, credit path
 
+## EXBT/USDT Trading (LBank brokerage connector)
+
+EXBT is listed on **LBank** (`EXBT/USDT`) but not on KuCoin. This module lets the Exbotix
+Laravel backend offer the `EXBT-USDT` spot pair, sourced from LBank and exposed in
+**KuCoin-compatible JSON** so the frontend treats it like any other pair.
+
+**Model:** pass-through brokerage. Exbotix holds ONE master LBank account; each user order is
+mirrored 1:1 to LBank. Funds live on the master account; this service keeps a per-user
+sub-ledger (`exbt_trade_balances`) and reconciles fills back to each user.
+
+```
+Laravel ──HTTP(HMAC)──▶ /api/trading ──▶ LBank master account (REST + WS)
+                            │                    │
+                            ▼                    ▼ fills
+                     exbt_orders / fills / balances ──▶ webhook /api/v1/trading/webhook
+```
+
+### Endpoints
+
+Market data is public; trading/account routes require the `X-Service-Token` HMAC
+(`hex(HMAC-SHA256("<timestamp>:<raw-body>", SERVICE_TOKEN_SECRET))` + `X-Timestamp`, 60s window).
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/trading/symbols` | — | Tradable pairs (KuCoin symbol shape) |
+| GET | `/api/trading/ticker?symbol=EXBT-USDT` | — | 24h stats + best bid/ask |
+| GET | `/api/trading/orderbook?symbol=&depth=` | — | Level2 book (live via WS when available) |
+| GET | `/api/trading/klines?symbol=&type=1min&size=&startAt=` | — | Candles, newest-first |
+| GET | `/api/trading/trades?symbol=&size=` | — | Recent trades |
+| POST | `/api/trading/orders` | ✓ | `{user_id, symbol, side, type, price?, size}` |
+| POST | `/api/trading/orders/:id/cancel` | ✓ | `{user_id}` |
+| GET | `/api/trading/orders/:id` | ✓ | Order detail |
+| GET | `/api/trading/orders?user_id=&status=open\|done` | ✓ | List user orders |
+| GET | `/api/trading/accounts/:user_id` | ✓ | EXBT + USDT available/locked |
+| POST | `/api/trading/accounts/credit` | ✓ | Fund a user's tradable balance |
+| POST | `/api/trading/accounts/debit` | ✓ | Defund a user's tradable balance |
+
+### Order flow
+
+```
+POST /api/trading/orders { user_id, symbol:"EXBT-USDT", side:"buy", type:"limit", price:"0.58", size:"100" }
+→ lock 100*0.58*(1+fee buffer) USDT → mirror to LBank → 200 { orderId, status:"open" }
+```
+
+Reconciliation (`TRADE_RECONCILE_INTERVAL_MS`, plus WS trade nudges) settles fills into the
+user ledger and POSTs `order.filled` / `order.partially_filled` / `order.canceled` /
+`order.failed` to Laravel, retrying failed webhooks just like deposits/withdrawals.
+
+### Config
+
+See `.env.example` — `LBANK_API_KEY/SECRET`, `LBANK_SIGN_METHOD`, `LBANK_SYMBOL`,
+`TRADING_ENABLED`, `TRADE_RECONCILE_INTERVAL_MS`, `TRADE_FEE_BUFFER`, `SERVICE_TOKEN_SECRET`.
+
+### Verify
+
+```bash
+npm run build
+npm run migrate                 # creates 4 exbt_trading_* tables, seeds EXBT-USDT
+node verify-lbank.js            # market data (public, no keys)
+node verify-lbank.js --private  # signed userInfo — proves signing before real orders
+```
+
+> Trading is fully isolated in `src/modules/trading/`. With `TRADING_ENABLED=false` (or no
+> LBank keys) the deposit/withdrawal service runs exactly as before; market data still serves.
+
 ## Security notes
 
 - `EXBT_HOT_WALLET_KEY` is never passed to `config/index.js` — only read directly in `WalletService` via `process.env`.

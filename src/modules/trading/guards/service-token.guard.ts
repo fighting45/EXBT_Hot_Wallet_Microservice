@@ -37,7 +37,8 @@ export class ServiceTokenGuard implements CanActivate {
       throw new UnauthorizedException('Stale or invalid X-Timestamp');
     }
 
-    const rawBody: string = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body ?? {});
+    // Sign over the exact raw bytes; GET/empty-body requests sign the empty string.
+    const rawBody: string = req.rawBody ? req.rawBody.toString('utf8') : '';
     const expected = crypto
       .createHmac('sha256', secret)
       .update(`${ts}:${rawBody}`)
