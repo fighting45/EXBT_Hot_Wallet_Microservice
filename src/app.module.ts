@@ -8,12 +8,17 @@ import {
   SweepTransaction,
   Withdrawal,
   ScannedBlock,
+  TradingPair,
+  TradeOrder,
+  TradeFill,
+  TradeBalance,
 } from './entities';
 import { EncryptionModule } from './modules/encryption/encryption.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { ListenerModule } from './modules/listener/listener.module';
 import { SweeperModule } from './modules/sweeper/sweeper.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
+import { TradingModule } from './modules/trading/trading.module';
 
 @Module({
   imports: [
@@ -29,7 +34,7 @@ import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
         username:   config.get('DB_USERNAME', 'exbotix'),
         password:   config.get('DB_PASSWORD'),
         database:   config.get('DB_DATABASE', 'exbotix_wallet'),
-        entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal, ScannedBlock],
+        entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal, ScannedBlock, TradingPair, TradeOrder, TradeFill, TradeBalance],
         synchronize: config.get('DB_SYNCHRONIZE', 'false') === 'true',
         logging:     config.get('DB_LOGGING', 'false') === 'true',
       }),
@@ -40,6 +45,7 @@ import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
     ListenerModule,
     SweeperModule,
     WithdrawalModule,
+    TradingModule,
   ],
 })
 export class AppModule {}

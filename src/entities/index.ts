@@ -4,3 +4,7 @@ export { NetworkSyncState } from './network-sync-state.entity';
 export { SweepTransaction } from './sweep-transaction.entity';
 export { Withdrawal } from './withdrawal.entity';
 export { ScannedBlock } from './scanned-block.entity';
+export { TradingPair } from './trading-pair.entity';
+export { TradeOrder } from './trade-order.entity';
+export { TradeFill } from './trade-fill.entity';
+export { TradeBalance } from './trade-balance.entity';
