@@ -26,6 +26,11 @@ export class SweeperController {
     );
   }
 
+  @Get('hot-wallet/balance')
+  hotWalletBalance() {
+    return this.sweeperService.getHotWalletBalance();
+  }
+
   @Get('status/:txHash')
   status(@Param('txHash') txHash: string) {
     return this.sweeperService.getSweepStatus(txHash);

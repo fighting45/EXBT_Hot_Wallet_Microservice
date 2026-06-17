@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -225,6 +225,32 @@ export class SweeperService implements OnModuleInit {
 
   async getSweepStatus(txHash: string): Promise<SweepTransaction | null> {
     return this.sweepTxRepo.findOne({ where: { txHash } });
+  }
+
+  /**
+   * Current native EXBT balance of the hot wallet. Used by Laravel to monitor that the
+   * hot wallet is funded enough to cover withdrawals and sweep gas.
+   */
+  async getHotWalletBalance(): Promise<{
+    address: string;
+    balance: string;
+    balance_wei: string;
+    chain_id: number;
+  }> {
+    const key = this.configService.get<string>('EXBT_HOT_WALLET_KEY');
+    if (!key || key.startsWith('0x_YOUR')) {
+      throw new ServiceUnavailableException('EXBT_HOT_WALLET_KEY is not configured');
+    }
+
+    const address    = this.hotWalletAddress;
+    const balanceWei = await this.provider.getBalance(address);
+
+    return {
+      address,
+      balance:     ethers.formatEther(balanceWei),
+      balance_wei: balanceWei.toString(),
+      chain_id:    parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211')),
+    };
   }
 
   private sleep(ms: number): Promise<void> {
