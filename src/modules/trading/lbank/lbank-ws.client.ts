@@ -57,7 +57,7 @@ export class LbankWsClient implements OnModuleInit, OnModuleDestroy {
   private connect() {
     if (this.closing) return;
     console.log(`[Trading][WS] connecting → ${this.wsUrl}`);
-    this.ws = new WebSocket(this.wsUrl);
+    this.ws = new WebSocket(this.wsUrl, { rejectUnauthorized: false });
 
     this.ws.on('open', () => {
       console.log(`[Trading][WS] connected — subscribing ${this.symbol}`);

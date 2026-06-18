@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
+import * as https from 'https';
 import * as crypto from 'crypto';
 import {
   LbankApiError,
@@ -41,6 +42,7 @@ export class LbankClient {
       this._http = axios.create({
         baseURL: this.config.get<string>('LBANK_API_BASE', 'https://api.lbkex.com'),
         timeout: 15000,
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
       });
     }
     return this._http;
