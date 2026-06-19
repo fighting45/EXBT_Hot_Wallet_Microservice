@@ -259,7 +259,7 @@ export class SweeperService implements OnModuleInit {
       }));
 
       this.logger.log(`Sweep complete for ${address}: ${sweepTx.hash}`);
-      return { address, index, txHash: sweepTx.hash, status: 'completed' };
+      return { address, txHash: sweepTx.hash, status: 'completed' };
     } catch (err) {
       this.logger.error(`Sweep failed for ${address}: ${err.message}`);
 
