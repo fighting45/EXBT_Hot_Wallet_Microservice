@@ -1,0 +1,608 @@
+{
+  "info": {
+    "name": "EXBT Trading — LBank Connector",
+    "description": "Full EXBT/USDT trading module. Public market endpoints need no auth. Money-moving endpoints (orders, accounts) require X-Service-Token HMAC computed by the pre-request script.\n\nSet these collection variables before use:\n  BASE_URL         → http://localhost:3500\n  SERVICE_SECRET   → value of SERVICE_TOKEN_SECRET in .env\n  USER_ID          → any numeric user id for testing",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "BASE_URL",       "value": "http://localhost:3500", "type": "string" },
+    { "key": "SERVICE_SECRET", "value": "your_service_token_secret_here", "type": "string" },
+    { "key": "USER_ID",        "value": "1", "type": "string" },
+    { "key": "LAST_ORDER_ID",  "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Market Data (public)",
+      "description": "No auth required. All responses are KuCoin-shaped: { code: '200000', data: { ... } }",
+      "item": [
+        {
+          "name": "GET /symbols",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/symbols",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "symbols"]
+            },
+            "description": "Returns all enabled trading pairs with precision/min-size metadata (KuCoin symbol shape)."
+          }
+        },
+        {
+          "name": "GET /ticker?symbol=EXBT-USDT",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/ticker?symbol=EXBT-USDT",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "ticker"],
+              "query": [{ "key": "symbol", "value": "EXBT-USDT" }]
+            },
+            "description": "Best bid/ask, last price, 24h stats for EXBT-USDT sourced from LBank."
+          }
+        },
+        {
+          "name": "GET /orderbook?symbol=EXBT-USDT&depth=20",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orderbook?symbol=EXBT-USDT&depth=20",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orderbook"],
+              "query": [
+                { "key": "symbol", "value": "EXBT-USDT" },
+                { "key": "depth",  "value": "20", "description": "Number of levels per side (default 20)" }
+              ]
+            },
+            "description": "Order book (asks + bids). Served from live WS depth cache if WS is connected, otherwise fresh REST call."
+          }
+        },
+        {
+          "name": "GET /klines?symbol=EXBT-USDT&type=1min",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/klines?symbol=EXBT-USDT&type=1min&size=200",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "klines"],
+              "query": [
+                { "key": "symbol",  "value": "EXBT-USDT" },
+                { "key": "type",    "value": "1min", "description": "1min 5min 15min 30min 1hour 2hour 4hour 6hour 8hour 12hour 1day 1week" },
+                { "key": "size",    "value": "200",  "description": "Number of candles (max 2000)" },
+                { "key": "startAt", "value": "",     "description": "Optional epoch seconds start", "disabled": true }
+              ]
+            },
+            "description": "OHLCV candlestick data. KuCoin shape: [time, open, close, high, low, volume, turnover]."
+          }
+        },
+        {
+          "name": "GET /trades?symbol=EXBT-USDT",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/trades?symbol=EXBT-USDT&size=50",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "trades"],
+              "query": [
+                { "key": "symbol", "value": "EXBT-USDT" },
+                { "key": "size",   "value": "50", "description": "Number of recent trades (default 100)" }
+              ]
+            },
+            "description": "Most recent trades from LBank for EXBT-USDT."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Accounts",
+      "description": "User trading balance management. All require X-Service-Token HMAC (computed by pre-request script).",
+      "item": [
+        {
+          "name": "GET /accounts/:user_id",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [ "pm.collectionVariables.set('HMAC_BODY', ''); eval(pm.collectionVariables.get('HMAC_SCRIPT'));" ] }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/accounts/{{USER_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "accounts", "{{USER_ID}}"]
+            },
+            "description": "Returns EXBT and USDT balances (available + locked) for the user."
+          }
+        },
+        {
+          "name": "POST /accounts/credit — fund USDT",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')), asset: 'USDT', amount: '500' }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}},\n  \"asset\": \"USDT\",\n  \"amount\": \"500\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/accounts/credit",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "accounts", "credit"]
+            },
+            "description": "Fund user's tradable USDT balance (called by Laravel when user deposits/moves funds in). Does NOT move on-chain funds — internal ledger only."
+          }
+        },
+        {
+          "name": "POST /accounts/credit — fund EXBT",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')), asset: 'EXBT', amount: '1000' }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}},\n  \"asset\": \"EXBT\",\n  \"amount\": \"1000\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/accounts/credit",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "accounts", "credit"]
+            },
+            "description": "Fund user's tradable EXBT balance (e.g. from a custodial deposit)."
+          }
+        },
+        {
+          "name": "POST /accounts/debit — withdraw USDT",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')), asset: 'USDT', amount: '100' }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}},\n  \"asset\": \"USDT\",\n  \"amount\": \"100\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/accounts/debit",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "accounts", "debit"]
+            },
+            "description": "Remove from user's available tradable balance (Laravel moves funds out). Debits available only — cannot debit locked funds."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "description": "Order lifecycle. All require X-Service-Token HMAC. Responses are KuCoin-shaped.",
+      "item": [
+        {
+          "name": "POST /orders — limit buy",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')), symbol: 'EXBT-USDT', side: 'buy', type: 'limit', price: '0.05', size: '100' }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.orderId) {",
+                  "  pm.collectionVariables.set('LAST_ORDER_ID', res.data.orderId);",
+                  "  console.log('Saved order id:', res.data.orderId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}},\n  \"symbol\": \"EXBT-USDT\",\n  \"side\": \"buy\",\n  \"type\": \"limit\",\n  \"price\": \"0.05\",\n  \"size\": \"100\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders"]
+            },
+            "description": "Place a limit buy for 100 EXBT at 0.05 USDT. Locks price×size×1.002 USDT. Mirrors to LBank. Saves LAST_ORDER_ID variable for subsequent requests."
+          }
+        },
+        {
+          "name": "POST /orders — limit sell",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')), symbol: 'EXBT-USDT', side: 'sell', type: 'limit', price: '0.06', size: '100' }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.orderId) pm.collectionVariables.set('LAST_ORDER_ID', res.data.orderId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}},\n  \"symbol\": \"EXBT-USDT\",\n  \"side\": \"sell\",\n  \"type\": \"limit\",\n  \"price\": \"0.06\",\n  \"size\": \"100\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders"]
+            },
+            "description": "Place a limit sell for 100 EXBT at 0.06 USDT. Requires EXBT in user's available balance. Locks 100 EXBT."
+          }
+        },
+        {
+          "name": "POST /orders — market buy",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')), symbol: 'EXBT-USDT', side: 'buy', type: 'market', size: '10' }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.orderId) pm.collectionVariables.set('LAST_ORDER_ID', res.data.orderId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}},\n  \"symbol\": \"EXBT-USDT\",\n  \"side\": \"buy\",\n  \"type\": \"market\",\n  \"size\": \"10\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders"]
+            },
+            "description": "Market buy — size is USDT to spend (10 USDT). No price required. Fills immediately at best ask."
+          }
+        },
+        {
+          "name": "POST /orders — market sell",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')), symbol: 'EXBT-USDT', side: 'sell', type: 'market', size: '100' }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.orderId) pm.collectionVariables.set('LAST_ORDER_ID', res.data.orderId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}},\n  \"symbol\": \"EXBT-USDT\",\n  \"side\": \"sell\",\n  \"type\": \"market\",\n  \"size\": \"100\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders"]
+            },
+            "description": "Market sell — size is base EXBT to sell (100 EXBT). Fills immediately at best bid."
+          }
+        },
+        {
+          "name": "GET /orders/:id — get single order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', '');",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders/{{LAST_ORDER_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders", "{{LAST_ORDER_ID}}"]
+            },
+            "description": "Fetch a single order by ID (UUID). Uses LAST_ORDER_ID saved by the place order requests. KuCoin-shaped order object."
+          }
+        },
+        {
+          "name": "GET /orders?user_id=&status=open",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', '');",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders?user_id={{USER_ID}}&status=open",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders"],
+              "query": [
+                { "key": "user_id", "value": "{{USER_ID}}" },
+                { "key": "status",  "value": "open", "description": "open | done | (omit for all)" }
+              ]
+            },
+            "description": "List user's open orders (status: open, pending, partially_filled). Change status=done for filled/canceled history."
+          }
+        },
+        {
+          "name": "GET /orders?user_id=&status=done",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', '');",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders?user_id={{USER_ID}}&status=done",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders"],
+              "query": [
+                { "key": "user_id", "value": "{{USER_ID}}" },
+                { "key": "status",  "value": "done" }
+              ]
+            },
+            "description": "List user's completed orders (filled, canceled, failed)."
+          }
+        },
+        {
+          "name": "POST /orders/:id/cancel",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('HMAC_BODY', JSON.stringify({ user_id: parseInt(pm.collectionVariables.get('USER_ID')) }));",
+                  "eval(pm.collectionVariables.get('HMAC_SCRIPT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",    "value": "application/json" },
+              { "key": "X-Timestamp",     "value": "{{HMAC_TS}}" },
+              { "key": "X-Service-Token", "value": "{{HMAC_TOKEN}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{USER_ID}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/orders/{{LAST_ORDER_ID}}/cancel",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "orders", "{{LAST_ORDER_ID}}", "cancel"]
+            },
+            "description": "Cancel an open order. Cancels on LBank, unlocks reserved funds back to available. Uses LAST_ORDER_ID."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth Smoke Tests",
+      "description": "Verify the HMAC guard rejects bad/missing credentials.",
+      "item": [
+        {
+          "name": "GET /accounts — missing token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/accounts/{{USER_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "accounts", "{{USER_ID}}"]
+            },
+            "description": "Should return 401 Unauthorized — no X-Service-Token header sent."
+          }
+        },
+        {
+          "name": "GET /accounts — wrong token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Timestamp",     "value": "1700000000" },
+              { "key": "X-Service-Token", "value": "badhash000000000000000000000000000000000000000000000000000000000" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/trading/accounts/{{USER_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "trading", "accounts", "{{USER_ID}}"]
+            },
+            "description": "Should return 401 Unauthorized — stale timestamp + wrong token."
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// HMAC signing helper — stored as a collection variable so per-request",
+          "// pre-request scripts can eval it after setting HMAC_BODY.",
+          "//",
+          "// Usage in a request's pre-request script:",
+          "//   pm.collectionVariables.set('HMAC_BODY', JSON.stringify({...}));",
+          "//   eval(pm.collectionVariables.get('HMAC_SCRIPT'));",
+          "//",
+          "// For GET requests with no body:",
+          "//   pm.collectionVariables.set('HMAC_BODY', '');",
+          "//   eval(pm.collectionVariables.get('HMAC_SCRIPT'));",
+          "",
+          "const script = `",
+          "  const ts      = Math.floor(Date.now() / 1000).toString();",
+          "  const body    = pm.collectionVariables.get('HMAC_BODY') || '';",
+          "  const secret  = pm.collectionVariables.get('SERVICE_SECRET');",
+          "  const message = ts + ':' + body;",
+          "  const token   = CryptoJS.HmacSHA256(message, secret).toString(CryptoJS.enc.Hex);",
+          "  pm.collectionVariables.set('HMAC_TS',    ts);",
+          "  pm.collectionVariables.set('HMAC_TOKEN', token);",
+          "`;",
+          "pm.collectionVariables.set('HMAC_SCRIPT', script);"
+        ]
+      }
+    }
+  ]
+}
