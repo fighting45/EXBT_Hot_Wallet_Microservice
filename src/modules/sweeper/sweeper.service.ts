@@ -16,9 +16,7 @@ export interface AddressWithBalance {
 
 export interface SweepResult {
   address: string;
-  index: number;
   txHash: string;
-  fundingTxHash: string;
   status: 'completed' | 'failed';
   error?: string;
 }
@@ -228,24 +226,16 @@ export class SweeperService implements OnModuleInit {
     this.logger.log(`Sweeping ${balance} EXBT from ${address} (index ${index})`);
 
     try {
-      const feeData     = await this.provider.getFeeData();
-      const gasPrice    = feeData.gasPrice;
-      const gasEstimate = await this.provider.estimateGas({ to: this.hotWalletAddress, from: address });
-      const gasLimit    = gasEstimate * 120n / 100n;
-      const gasCostWei  = gasLimit * gasPrice;
+      const feeData    = await this.provider.getFeeData();
+      const gasPrice   = feeData.gasPrice;
+      const gasLimit   = 21000n; // exact gas for a native transfer — no buffer so nothing is refunded
+      const gasCostWei = gasLimit * gasPrice;
 
-      // Step 1: Fund address from hot wallet so it can pay gas
-      this.logger.log(`Funding ${address} with ${ethers.formatEther(gasCostWei)} EXBT for gas`);
-      const fundTx = await this.hotWallet.sendTransaction({ to: address, value: gasCostWei });
-      await fundTx.wait(1);
-
-      // Step 2: Get fresh balance after funding
       const currentBalance = await this.provider.getBalance(address);
       const sendAmount     = currentBalance - gasCostWei;
 
-      if (sendAmount <= 0n) throw new Error('Balance too low after gas funding');
+      if (sendAmount <= 0n) throw new Error('Balance too low to cover gas');
 
-      // Step 3: Sweep from user address back to hot wallet
       const { privateKey } = this.walletService.deriveWallet(mnemonic, index);
       const userWallet     = new ethers.Wallet(privateKey, this.provider);
 
@@ -259,7 +249,7 @@ export class SweeperService implements OnModuleInit {
 
       await this.sweepTxRepo.save(this.sweepTxRepo.create({
         txHash:          sweepTx.hash,
-        fundingTxHash:   fundTx.hash,
+        fundingTxHash:   '',
         fromAddress:     address,
         toAddress:       this.hotWalletAddress,
         amount:          ethers.formatEther(sendAmount),
@@ -269,7 +259,7 @@ export class SweeperService implements OnModuleInit {
       }));
 
       this.logger.log(`Sweep complete for ${address}: ${sweepTx.hash}`);
-      return { address, index, txHash: sweepTx.hash, fundingTxHash: fundTx.hash, status: 'completed' };
+      return { address, index, txHash: sweepTx.hash, status: 'completed' };
     } catch (err) {
       this.logger.error(`Sweep failed for ${address}: ${err.message}`);
 
@@ -282,7 +272,7 @@ export class SweeperService implements OnModuleInit {
         errorMessage:    err.message,
       }));
 
-      return { address, index, txHash: '', fundingTxHash: '', status: 'failed', error: err.message };
+      return { address, txHash: '', status: 'failed', error: err.message };
     }
   }
 
