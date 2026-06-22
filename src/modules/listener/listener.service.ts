@@ -28,7 +28,7 @@ export class ListenerService {
   ) {
     const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
     const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
-    this.provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
+    this.provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' }, { staticNetwork: true });
 
     this.laravelWebhookUrl    = `${this.configService.get('LARAVEL_URL')}/api/v1/deposits/webhook`;
     this.laravelApiSecret     = this.configService.get<string>('LARAVEL_API_SECRET');

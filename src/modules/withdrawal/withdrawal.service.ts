@@ -27,7 +27,7 @@ export class WithdrawalService implements OnModuleInit {
     if (!this._provider) {
       const rpcUrl  = this.configService.get<string>('EXBT_RPC_URL');
       const chainId = parseInt(this.configService.get<string>('EXBT_CHAIN_ID', '11211'));
-      this._provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' });
+      this._provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: 'exbt-testnet' }, { staticNetwork: true });
     }
     return this._provider;
   }
