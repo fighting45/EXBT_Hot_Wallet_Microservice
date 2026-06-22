@@ -32,6 +32,11 @@ import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
         entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal, ScannedBlock],
         synchronize: config.get('DB_SYNCHRONIZE', 'false') === 'true',
         logging:     config.get('DB_LOGGING', 'false') === 'true',
+        extra: {
+          max: parseInt(config.get('DB_POOL_MAX', '5')),
+          min: 1,
+          idleTimeoutMillis: 30000,
+        },
       }),
     }),
 
