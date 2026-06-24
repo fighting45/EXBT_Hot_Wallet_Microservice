@@ -240,10 +240,12 @@ export class SweeperService implements OnModuleInit {
     this.logger.log(`Sweeping ${balance} EXBT from ${address} (index ${index})`);
 
     try {
-      const feeData    = await this.provider.getFeeData();
-      const gasPrice   = feeData.gasPrice;
-      const gasLimit   = 21000n; // exact gas for a native transfer — no buffer so nothing is refunded
-      const gasCostWei = gasLimit * gasPrice;
+      const feeData             = await this.provider.getFeeData();
+      const maxFeePerGas        = feeData.maxFeePerGas ?? feeData.gasPrice;
+      const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? feeData.gasPrice;
+      const gasLimit            = 21000n;
+      // Reserve the full maxFeePerGas so the chain can never overdraft on EIP-1559
+      const gasCostWei          = gasLimit * maxFeePerGas;
 
       const currentBalance = await this.provider.getBalance(address);
       const sendAmount     = currentBalance - gasCostWei;
@@ -254,10 +256,11 @@ export class SweeperService implements OnModuleInit {
       const userWallet     = new ethers.Wallet(privateKey, this.provider);
 
       const sweepTx = await userWallet.sendTransaction({
-        to:       this.hotWalletAddress,
-        value:    sendAmount,
+        to:                this.hotWalletAddress,
+        value:             sendAmount,
         gasLimit,
-        gasPrice,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
       });
       await sweepTx.wait(1);
 
