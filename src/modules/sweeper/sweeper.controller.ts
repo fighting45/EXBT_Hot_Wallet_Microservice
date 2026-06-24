@@ -8,22 +8,12 @@ export class SweeperController {
 
   @Post('estimate')
   estimate(@Body() dto: EstimateSweepDto) {
-    return this.sweeperService.estimateSweep(
-      dto.encrypted_mnemonic,
-      dto.start_index,
-      dto.end_index,
-      dto.min_balance,
-    );
+    return this.sweeperService.estimateSweep(dto.encrypted_mnemonic, dto.min_balance);
   }
 
   @Post('execute')
   execute(@Body() dto: ExecuteSweepDto) {
-    return this.sweeperService.executeSweep(
-      dto.encrypted_mnemonic,
-      dto.start_index,
-      dto.end_index,
-      dto.min_balance,
-    );
+    return this.sweeperService.executeSweep(dto.encrypted_mnemonic, dto.min_balance);
   }
 
   @Get('hot-wallet/balance')

@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { ethers } from 'ethers';
 import axios from 'axios';
-import { SweepTransaction } from '../../entities';
+import { SweepTransaction, WalletAddress } from '../../entities';
 import { WalletService } from '../wallet/wallet.service';
 import { EncryptionService, EncryptedData } from '../encryption/encryption.service';
 
@@ -30,6 +30,8 @@ export class SweeperService implements OnModuleInit {
   constructor(
     @InjectRepository(SweepTransaction)
     private sweepTxRepo: Repository<SweepTransaction>,
+    @InjectRepository(WalletAddress)
+    private walletAddressRepo: Repository<WalletAddress>,
     private walletService: WalletService,
     private encryptionService: EncryptionService,
     private configService: ConfigService,
@@ -68,6 +70,7 @@ export class SweeperService implements OnModuleInit {
 
   private readonly BATCH_SIZE  = 200;
   private readonly CONCURRENCY = 5;
+  private readonly DB_PAGE_SIZE = 500;
 
   /**
    * Fire a JSON-RPC batch of eth_getBalance calls in one HTTP request.
@@ -96,26 +99,39 @@ export class SweeperService implements OnModuleInit {
   }
 
   /**
-   * Derive addresses startIndex–endIndex, batch-fetch their balances, return
-   * only those with balance > minWei. Much faster than one getBalance per address.
+   * Paginate through exbt_wallet_addresses in DB_PAGE_SIZE chunks.
+   * Returns all address+derivationIndex pairs without loading the entire table at once.
    */
-  private async scanAddresses(
-    mnemonic: string,
-    startIndex: number,
-    endIndex: number,
-    minWei: bigint,
-  ): Promise<AddressWithBalance[]> {
-    // 1. Derive all addresses up-front (CPU-only, no I/O)
-    const derived: { address: string; index: number }[] = [];
-    for (let i = startIndex; i < endIndex; i++) {
-      const { address } = this.walletService.deriveWallet(mnemonic, i);
-      derived.push({ address, index: i });
+  private async loadAddressesFromDb(): Promise<{ address: string; index: number }[]> {
+    const all: { address: string; index: number }[] = [];
+    let skip = 0;
+
+    while (true) {
+      const rows = await this.walletAddressRepo.find({
+        select: ['address', 'derivationIndex'],
+        skip,
+        take: this.DB_PAGE_SIZE,
+        order: { derivationIndex: 'ASC' },
+      });
+      if (rows.length === 0) break;
+      for (const r of rows) all.push({ address: r.address, index: r.derivationIndex });
+      if (rows.length < this.DB_PAGE_SIZE) break;
+      skip += this.DB_PAGE_SIZE;
     }
 
-    // 2. Split into chunks and batch-fetch with limited concurrency
-    const chunks: typeof derived[] = [];
-    for (let i = 0; i < derived.length; i += this.BATCH_SIZE) {
-      chunks.push(derived.slice(i, i + this.BATCH_SIZE));
+    return all;
+  }
+
+  /**
+   * Batch-fetch balances for the given address list, return only those above minWei.
+   */
+  private async scanAddresses(
+    addresses: { address: string; index: number }[],
+    minWei: bigint,
+  ): Promise<AddressWithBalance[]> {
+    const chunks: typeof addresses[] = [];
+    for (let i = 0; i < addresses.length; i += this.BATCH_SIZE) {
+      chunks.push(addresses.slice(i, i + this.BATCH_SIZE));
     }
 
     const found: AddressWithBalance[] = [];
@@ -141,22 +157,21 @@ export class SweeperService implements OnModuleInit {
   }
 
   /**
-   * Scan a range of derived addresses and return those with balance above minBalance.
+   * Fetch all addresses from DB and return those with balance above minBalance.
    * Phase 1 of the sweep flow — called before execution so admin can review.
    */
   async estimateSweep(
     encryptedMnemonic: EncryptedData,
-    startIndex: number,
-    endIndex: number,
     minBalance = '0.001',
   ) {
     const masterPassword = this.configService.get<string>('MASTER_PASSWORD');
-    const mnemonic       = this.encryptionService.decrypt(encryptedMnemonic, masterPassword);
-    const minWei         = ethers.parseEther(minBalance);
+    this.encryptionService.decrypt(encryptedMnemonic, masterPassword); // validate mnemonic decrypts
+    const minWei = ethers.parseEther(minBalance);
 
-    this.logger.log(`Scanning addresses ${startIndex}–${endIndex} for balance >= ${minBalance} EXBT (batched)`);
+    const dbAddresses = await this.loadAddressesFromDb();
+    this.logger.log(`Scanning ${dbAddresses.length} DB addresses for balance >= ${minBalance} EXBT (batched)`);
 
-    const addressesWithBalance = await this.scanAddresses(mnemonic, startIndex, endIndex, minWei);
+    const addressesWithBalance = await this.scanAddresses(dbAddresses, minWei);
 
     const [hotBalance, feeData] = await Promise.all([
       this.provider.getBalance(this.hotWalletAddress),
@@ -180,23 +195,22 @@ export class SweeperService implements OnModuleInit {
   }
 
   /**
-   * Scan addresses for balance then sweep all to hot wallet automatically.
-   * Single call — no need to pass addresses manually.
+   * Fetch all addresses from DB, scan balances, then sweep to hot wallet.
    */
   async executeSweep(
     encryptedMnemonic: EncryptedData,
-    startIndex: number,
-    endIndex: number,
     minBalance = '0.001',
   ): Promise<{ scanned: number; swept: number; results: SweepResult[] }> {
     const masterPassword = this.configService.get<string>('MASTER_PASSWORD');
     const mnemonic       = this.encryptionService.decrypt(encryptedMnemonic, masterPassword);
     const minWei         = ethers.parseEther(minBalance);
-    const scanned        = endIndex - startIndex;
 
-    this.logger.log(`Scanning addresses ${startIndex}–${endIndex} (batched) then sweeping to hot wallet...`);
+    const dbAddresses = await this.loadAddressesFromDb();
+    const scanned     = dbAddresses.length;
 
-    const addressesWithBalance = await this.scanAddresses(mnemonic, startIndex, endIndex, minWei);
+    this.logger.log(`Scanning ${scanned} DB addresses (batched) then sweeping to hot wallet...`);
+
+    const addressesWithBalance = await this.scanAddresses(dbAddresses, minWei);
 
     this.logger.log(`Scan complete — ${addressesWithBalance.length} address(es) to sweep out of ${scanned}`);
 
@@ -226,10 +240,12 @@ export class SweeperService implements OnModuleInit {
     this.logger.log(`Sweeping ${balance} EXBT from ${address} (index ${index})`);
 
     try {
-      const feeData    = await this.provider.getFeeData();
-      const gasPrice   = feeData.gasPrice;
-      const gasLimit   = 21000n; // exact gas for a native transfer — no buffer so nothing is refunded
-      const gasCostWei = gasLimit * gasPrice;
+      const feeData             = await this.provider.getFeeData();
+      const maxFeePerGas        = feeData.maxFeePerGas ?? feeData.gasPrice;
+      const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? feeData.gasPrice;
+      const gasLimit            = 21000n;
+      // Reserve the full maxFeePerGas so the chain can never overdraft on EIP-1559
+      const gasCostWei          = gasLimit * maxFeePerGas;
 
       const currentBalance = await this.provider.getBalance(address);
       const sendAmount     = currentBalance - gasCostWei;
@@ -240,10 +256,11 @@ export class SweeperService implements OnModuleInit {
       const userWallet     = new ethers.Wallet(privateKey, this.provider);
 
       const sweepTx = await userWallet.sendTransaction({
-        to:       this.hotWalletAddress,
-        value:    sendAmount,
+        to:                this.hotWalletAddress,
+        value:             sendAmount,
         gasLimit,
-        gasPrice,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
       });
       await sweepTx.wait(1);
 
