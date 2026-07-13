@@ -14,6 +14,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { ListenerModule } from './modules/listener/listener.module';
 import { SweeperModule } from './modules/sweeper/sweeper.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
+import { ArbitrageWithdrawalModule } from './modules/arbitrage/arbitrage-withdrawal.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
     ListenerModule,
     SweeperModule,
     WithdrawalModule,
+    ArbitrageWithdrawalModule,
   ],
 })
 export class AppModule {}
