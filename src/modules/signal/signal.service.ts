@@ -67,6 +67,14 @@ export interface CheckResult {
   signal?: SignalPayload;
 }
 
+// Isolated state per (symbol × interval) scanner
+interface ScannerState {
+  symbol: string;
+  interval: string;
+  activeDirection: 0 | 1 | -1;
+  lastSignalBarTime: number | null;
+}
+
 // ─── Interval maps ────────────────────────────────────────────────────────────
 
 const TIMEFRAME_MS: Record<string, number> = {
@@ -84,8 +92,8 @@ const TIMEFRAME_MS: Record<string, number> = {
   '1d':  86_400_000,
 };
 
-// KuCoin uses different interval identifiers to Binance
-const KUCOIN_INTERVAL: Record<string, string> = {
+// KuCoin Spot interval identifiers
+const KUCOIN_SPOT_INTERVAL: Record<string, string> = {
   '1m':  '1min',
   '3m':  '3min',
   '5m':  '5min',
@@ -100,20 +108,40 @@ const KUCOIN_INTERVAL: Record<string, string> = {
   '1d':  '1day',
 };
 
+// KuCoin Futures granularity in minutes
+const KUCOIN_FUTURES_GRANULARITY: Record<string, number> = {
+  '1m':  1,
+  '5m':  5,
+  '15m': 15,
+  '30m': 30,
+  '1h':  60,
+  '2h':  120,
+  '4h':  240,
+  '8h':  480,
+  '12h': 720,
+  '1d':  1440,
+};
+
+// KuCoin Futures uses non-standard symbols for some pairs
+const KUCOIN_FUTURES_SYMBOL_MAP: Record<string, string> = {
+  'BTCUSDT.P': 'XBTUSDTM',
+  'ETHUSDT.P': 'ETHUSDTM',
+  'SOLUSDT.P': 'SOLUSDTM',
+  'BNBUSDT.P': 'BNBUSDTM',
+  'XRPUSDT.P': 'XRPUSDTM',
+  'ADAUSDT.P': 'ADAUSDTM',
+  'DOGEUSDT.P': 'DOGEUSDTM',
+};
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class SignalService implements OnModuleInit {
   private readonly logger = new Logger(SignalService.name);
-  private isRunning = false;
+  private readonly scanners: ScannerState[] = [];
 
-  // Stateful tracking (mirrors Pine Script vars activeDirection / lastSignalBarTime)
-  private activeDirection: 0 | 1 | -1 = 0;
-  private lastSignalBarTime: number | null = null;
-
-  // Resolved config
-  private readonly symbol: string;
-  private readonly interval: string;
+  private readonly symbols: string[];
+  private readonly intervals: string[];
   private readonly secondaryInterval: string;
   private readonly fastEmaPeriod: number;
   private readonly slowEmaPeriod: number;
@@ -123,11 +151,12 @@ export class SignalService implements OnModuleInit {
   private readonly tpCount: number;
   private readonly webhookUrl: string;
   private readonly webhookSecret: string;
-  private readonly kucoinBaseUrl: string;
+  private readonly kucoinSpotUrl: string;
+  private readonly kucoinFuturesUrl: string;
 
   constructor(private readonly config: ConfigService) {
-    this.symbol             = config.get('SIGNAL_SYMBOL', 'BTC-USDT');
-    this.interval           = config.get('SIGNAL_INTERVAL', '1h');
+    this.symbols            = config.get('SIGNAL_SYMBOLS', 'BTC-USDT').split(',').map(s => s.trim()).filter(Boolean);
+    this.intervals          = config.get('SIGNAL_INTERVALS', '1h').split(',').map(s => s.trim()).filter(Boolean);
     this.secondaryInterval  = config.get('SIGNAL_SECONDARY_INTERVAL', '5m');
     this.fastEmaPeriod      = parseInt(config.get('SIGNAL_FAST_EMA', '9'));
     this.slowEmaPeriod      = parseInt(config.get('SIGNAL_SLOW_EMA', '21'));
@@ -135,7 +164,8 @@ export class SignalService implements OnModuleInit {
     this.atrPeriod          = parseInt(config.get('SIGNAL_ATR_PERIOD', '14'));
     this.atrSlMultiplier    = parseFloat(config.get('SIGNAL_ATR_SL_MULTIPLIER', '1.5'));
     this.tpCount            = parseInt(config.get('SIGNAL_TP_COUNT', '5'));
-    this.kucoinBaseUrl      = config.get('SIGNAL_KUCOIN_URL', 'https://api.kucoin.com');
+    this.kucoinSpotUrl      = config.get('SIGNAL_KUCOIN_URL', 'https://api.kucoin.com');
+    this.kucoinFuturesUrl   = config.get('SIGNAL_KUCOIN_FUTURES_URL', 'https://api-futures.kucoin.com');
 
     const laravelBase   = config.get('LARAVEL_URL', '');
     this.webhookUrl     = config.get('SIGNAL_WEBHOOK_URL', `${laravelBase}/api/v1/signals/webhook`);
@@ -150,51 +180,69 @@ export class SignalService implements OnModuleInit {
       return;
     }
 
+    const total = this.symbols.length * this.intervals.length;
     this.logger.log(
-      `[Signal] Starting — ${this.symbol} ${this.interval} | Secondary TF: ${this.secondaryInterval} | ` +
-      `Fast EMA: ${this.fastEmaPeriod} | Slow EMA: ${this.slowEmaPeriod} | ` +
-      `Min confluence: ${this.minConfluenceScore}/7 | ATR×${this.atrSlMultiplier}`,
+      `[Signal] Starting ${total} scanner(s)\n` +
+      `  Symbols:       ${this.symbols.join(', ')}\n` +
+      `  Intervals:     ${this.intervals.join(', ')}\n` +
+      `  Secondary TF:  ${this.secondaryInterval}\n` +
+      `  Fast/Slow EMA: ${this.fastEmaPeriod}/${this.slowEmaPeriod}\n` +
+      `  Min confluence: ${this.minConfluenceScore}/7 | ATR×${this.atrSlMultiplier}`,
     );
 
-    this.runLoop().catch(err => {
-      this.logger.error(`[Signal] Loop crashed: ${err.message}`);
-    });
+    for (const symbol of this.symbols) {
+      for (const interval of this.intervals) {
+        const state: ScannerState = {
+          symbol,
+          interval,
+          activeDirection:   0,
+          lastSignalBarTime: null,
+        };
+        this.scanners.push(state);
+
+        this.runLoop(state).catch(err =>
+          this.logger.error(`[Signal][${symbol}/${interval}] Loop crashed: ${err.message}`),
+        );
+      }
+    }
   }
 
-  // ─── Main polling loop ────────────────────────────────────────────────────
+  // ─── Per-scanner loop ─────────────────────────────────────────────────────
 
-  private async runLoop(): Promise<void> {
-    this.isRunning = true;
-    await this.sleepUntilNextBarClose();
+  private async runLoop(state: ScannerState): Promise<void> {
+    // Each TF aligns to its own bar-close boundary independently
+    await this.sleepUntilNextBarClose(state.interval);
 
-    while (this.isRunning) {
+    while (true) {
       try {
-        await this.checkSignal();
+        await this.checkSignal(state);
       } catch (err) {
-        this.logger.error(`[Signal] Check error: ${err.message}`);
+        this.logger.error(`[Signal][${state.symbol}/${state.interval}] Check error: ${err.message}`);
       }
-      await this.sleepUntilNextBarClose();
+      await this.sleepUntilNextBarClose(state.interval);
     }
   }
 
   // ─── Core signal logic ────────────────────────────────────────────────────
 
-  async checkSignal(): Promise<CheckResult> {
+  async checkSignal(state: ScannerState): Promise<CheckResult> {
+    const tag = `[${state.symbol}/${state.interval}]`;
+
     const [mainCandles, secCandles] = await Promise.all([
-      this.fetchCandles(this.symbol, this.interval, 300),
-      this.fetchCandles(this.symbol, this.secondaryInterval, 100),
+      this.fetchCandles(state.symbol, state.interval, 300),
+      this.fetchCandles(state.symbol, this.secondaryInterval, 100),
     ]);
 
     if (mainCandles.length < 60) {
-      this.logger.warn('[Signal] Not enough main candles — skipping');
+      this.logger.warn(`[Signal]${tag} Not enough main candles (${mainCandles.length}) — skipping`);
       return { triggered: false };
     }
     if (secCandles.length < 20) {
-      this.logger.warn('[Signal] Not enough secondary candles — skipping');
+      this.logger.warn(`[Signal]${tag} Not enough secondary candles (${secCandles.length}) — skipping`);
       return { triggered: false };
     }
 
-    // Last KuCoin candle is the still-forming bar; work with the closed one before it.
+    // Last candle is the still-forming bar; work with the closed one before it
     const n = mainCandles.length - 2;
 
     const closes  = mainCandles.map(c => c.close);
@@ -237,7 +285,7 @@ export class SignalService implements OnModuleInit {
     const warm = [bar.fastEMA, bar.slowEMA, bar.prevFastEMA, bar.prevSlowEMA,
                   bar.vwap, bar.atr, bar.rsi, bar.macd, bar.macdSig, bar.adx, bar.volSMA];
     if (warm.some(v => isNaN(v))) {
-      this.logger.warn('[Signal] Indicators still warming up (NaN) — skipping');
+      this.logger.warn(`[Signal]${tag} Indicators warming up (NaN) — skipping`);
       return { triggered: false };
     }
 
@@ -245,7 +293,7 @@ export class SignalService implements OnModuleInit {
     const bullCross = bar.prevFastEMA <= bar.prevSlowEMA && bar.fastEMA > bar.slowEMA;
     const bearCross = bar.prevFastEMA >= bar.prevSlowEMA && bar.fastEMA < bar.slowEMA;
 
-    // ── Confluence scoring (7 factors each direction) ──
+    // ── Confluence scoring ──
     const bullFactors: ConfluenceFactors = {
       aboveVwap:           bar.close > bar.vwap,
       rsiAligned:          bar.rsi > 50,
@@ -268,15 +316,14 @@ export class SignalService implements OnModuleInit {
     const bullScore = Object.values(bullFactors).filter(Boolean).length;
     const bearScore = Object.values(bearFactors).filter(Boolean).length;
 
-    // ── Market Bias ──
     const marketBias = this.calcMarketBias(bullScore, bearScore);
 
-    const longSignal  = bullCross && this.activeDirection <= 0 && bullScore >= this.minConfluenceScore;
-    const shortSignal = bearCross && this.activeDirection >= 0 && bearScore >= this.minConfluenceScore;
+    const longSignal  = bullCross && state.activeDirection <= 0 && bullScore >= this.minConfluenceScore;
+    const shortSignal = bearCross && state.activeDirection >= 0 && bearScore >= this.minConfluenceScore;
 
     this.logger.log(
-      `[Signal][${this.symbol}/${this.interval}] ` +
-      `Fast: ${bar.fastEMA.toFixed(4)} | Slow: ${bar.slowEMA.toFixed(4)} | ` +
+      `[Signal]${tag} ` +
+      `EMA fast/slow: ${bar.fastEMA.toFixed(4)}/${bar.slowEMA.toFixed(4)} | ` +
       `Bull: ${bullScore}/7 | Bear: ${bearScore}/7 | Bias: ${marketBias.label} | ` +
       `Cross: ${bullCross ? 'BULL' : bearCross ? 'BEAR' : 'none'} | ` +
       `Signal: ${longSignal ? 'LONG' : shortSignal ? 'SHORT' : 'none'}`,
@@ -284,8 +331,8 @@ export class SignalService implements OnModuleInit {
 
     if (!longSignal && !shortSignal) return { triggered: false };
 
-    if (this.lastSignalBarTime === bar.openTime) {
-      this.logger.warn(`[Signal] Duplicate suppressed — already fired for bar ${new Date(bar.openTime).toISOString()}`);
+    if (state.lastSignalBarTime === bar.openTime) {
+      this.logger.warn(`[Signal]${tag} Duplicate suppressed for bar ${new Date(bar.openTime).toISOString()}`);
       return { triggered: false };
     }
 
@@ -294,15 +341,14 @@ export class SignalService implements OnModuleInit {
     const riskAmount = bar.atr * this.atrSlMultiplier;
     const sl         = isBull ? entry - riskAmount : entry + riskAmount;
     const tp         = (mult: number) => isBull ? entry + riskAmount * mult : entry - riskAmount * mult;
-
-    const score   = isBull ? bullScore : bearScore;
-    const factors = isBull ? bullFactors : bearFactors;
+    const score      = isBull ? bullScore : bearScore;
+    const factors    = isBull ? bullFactors : bearFactors;
 
     const payload: SignalPayload = {
       event:     'trading_signal',
       signal:    isBull ? 'LONG' : 'SHORT',
-      symbol:    this.symbol,
-      timeframe: this.interval,
+      symbol:    state.symbol,
+      timeframe: state.interval,
       timestamp: bar.openTime,
       datetime:  new Date(bar.openTime).toISOString(),
       price: {
@@ -328,13 +374,14 @@ export class SignalService implements OnModuleInit {
       marketBias,
     };
 
-    this.activeDirection   = isBull ? 1 : -1;
-    this.lastSignalBarTime = bar.openTime;
+    // Update state before webhook so a webhook failure can't re-trigger
+    state.activeDirection   = isBull ? 1 : -1;
+    state.lastSignalBarTime = bar.openTime;
 
     this.logger.log(
-      `[Signal] *** ${payload.signal} *** ${this.symbol} | ` +
+      `[Signal]${tag} *** ${payload.signal} *** | ` +
       `Entry: ${entry} | SL: ${sl.toFixed(4)} | TP1: ${tp(1).toFixed(4)} | TP5: ${tp(5).toFixed(4)} | ` +
-      `Score: ${score}/7 | Bias: ${marketBias.label} (${marketBias.bull}% Bull / ${marketBias.bear}% Bear)`,
+      `Score: ${score}/7 | Bias: ${marketBias.label}`,
     );
 
     await this.sendWebhook(payload);
@@ -349,42 +396,43 @@ export class SignalService implements OnModuleInit {
     const difference = parseFloat(Math.abs(bull - bear).toFixed(2));
 
     let label: MarketBias['label'];
-    if (bull === bear) {
-      label = 'NEUTRAL';
-    } else if (bull > bear) {
-      label = difference >= 40 ? 'STRONG BULL' : 'MILD BULL';
-    } else {
-      label = difference >= 40 ? 'STRONG BEAR' : 'MILD BEAR';
-    }
+    if (bull === bear)     label = 'NEUTRAL';
+    else if (bull > bear)  label = difference >= 40 ? 'STRONG BULL' : 'MILD BULL';
+    else                   label = difference >= 40 ? 'STRONG BEAR' : 'MILD BEAR';
 
     return { bull, bear, difference, label };
   }
 
-  // ─── KuCoin candle fetch ──────────────────────────────────────────────────
+  // ─── Candle fetch — routes to Spot or Futures based on symbol ────────────
 
-  private async fetchCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
-    const kucoinSymbol   = this.toKucoinSymbol(symbol);
-    const kucoinInterval = KUCOIN_INTERVAL[interval] ?? '1hour';
+  private fetchCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
+    return symbol.endsWith('.P')
+      ? this.fetchFuturesCandles(symbol, interval, limit)
+      : this.fetchSpotCandles(symbol, interval, limit);
+  }
+
+  // KuCoin Spot  — /api/v1/market/candles
+  // Returns newest-first, string arrays: [time(sec), open, close, high, low, volume, turnover]
+  private async fetchSpotCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
+    const kucoinSymbol   = this.toKucoinSpotSymbol(symbol);
+    const kucoinInterval = KUCOIN_SPOT_INTERVAL[interval] ?? '1hour';
     const intervalSec    = this.tfToMs(interval) / 1000;
+    const endAt          = Math.floor(Date.now() / 1000);
+    const startAt        = endAt - limit * intervalSec;
 
-    // KuCoin requires explicit time range to control how many candles are returned
-    const endAt   = Math.floor(Date.now() / 1000);
-    const startAt = endAt - limit * intervalSec;
-
-    const url  = `${this.kucoinBaseUrl}/api/v1/market/candles`;
-    const resp = await axios.get<{ code: string; data: string[][] }>(url, {
-      params:  { symbol: kucoinSymbol, type: kucoinInterval, startAt, endAt },
-      timeout: 10_000,
-    });
+    const resp = await axios.get<{ code: string; data: string[][] }>(
+      `${this.kucoinSpotUrl}/api/v1/market/candles`,
+      { params: { symbol: kucoinSymbol, type: kucoinInterval, startAt, endAt }, timeout: 10_000 },
+    );
 
     if (resp.data.code !== '200000') {
-      throw new Error(`KuCoin API error: ${resp.data.code}`);
+      throw new Error(`KuCoin Spot API error: ${resp.data.code}`);
     }
 
-    // KuCoin returns newest-first; reverse to chronological order.
-    // Candle format: [time(sec), open, close, high, low, volume, turnover]
+    // Reverse: KuCoin Spot returns newest-first
+    // Format: [time(sec), open, close, high, low, volume, turnover]
     return resp.data.data.reverse().map(k => ({
-      openTime: parseInt(k[0]) * 1000,  // seconds → ms
+      openTime: parseInt(k[0]) * 1000,
       open:     parseFloat(k[1]),
       close:    parseFloat(k[2]),
       high:     parseFloat(k[3]),
@@ -393,14 +441,50 @@ export class SignalService implements OnModuleInit {
     }));
   }
 
-  // Converts Binance-style symbol (BTCUSDT) to KuCoin format (BTC-USDT)
-  private toKucoinSymbol(symbol: string): string {
+  // KuCoin Futures — /api/v1/kline/query
+  // Returns oldest-first, number arrays: [time(ms), open, high, low, close, volume]
+  private async fetchFuturesCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
+    const kucoinSymbol  = this.toKucoinFuturesSymbol(symbol);
+    const granularity   = KUCOIN_FUTURES_GRANULARITY[interval] ?? 60;
+    const intervalMs    = this.tfToMs(interval);
+    const to            = Date.now();
+    const from          = to - limit * intervalMs;
+
+    const resp = await axios.get<{ code: string; data: number[][] }>(
+      `${this.kucoinFuturesUrl}/api/v1/kline/query`,
+      { params: { symbol: kucoinSymbol, granularity, from, to }, timeout: 10_000 },
+    );
+
+    if (resp.data.code !== '200000') {
+      throw new Error(`KuCoin Futures API error: ${resp.data.code} — symbol: ${kucoinSymbol}`);
+    }
+
+    // Already oldest-first — standard OHLCV: [time(ms), open, high, low, close, volume]
+    return resp.data.data.map(k => ({
+      openTime: k[0],
+      open:     k[1],
+      high:     k[2],
+      low:      k[3],
+      close:    k[4],
+      volume:   k[5],
+    }));
+  }
+
+  // BTCUSDT → BTC-USDT  (spot symbols)
+  private toKucoinSpotSymbol(symbol: string): string {
     if (symbol.includes('-')) return symbol;
     const quotes = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'BUSD'];
     for (const q of quotes) {
       if (symbol.endsWith(q)) return `${symbol.slice(0, -q.length)}-${q}`;
     }
     return symbol;
+  }
+
+  // BTCUSDT.P → XBTUSDTM  (futures contract symbols)
+  private toKucoinFuturesSymbol(symbol: string): string {
+    if (KUCOIN_FUTURES_SYMBOL_MAP[symbol]) return KUCOIN_FUTURES_SYMBOL_MAP[symbol];
+    // Fallback: strip .P suffix and append M  (e.g. LINKUSDT.P → LINKUSDTM)
+    return symbol.replace('.P', '') + 'M';
   }
 
   // ─── Webhook ──────────────────────────────────────────────────────────────
@@ -418,7 +502,7 @@ export class SignalService implements OnModuleInit {
       .digest('hex');
 
     this.logger.log(
-      `[Signal][WEBHOOK] Sending ${payload.signal} to ${this.webhookUrl}\n` +
+      `[Signal][WEBHOOK] Sending ${payload.signal} ${payload.symbol}/${payload.timeframe} → ${this.webhookUrl}\n` +
       `  Payload: ${body}`,
     );
 
@@ -433,8 +517,8 @@ export class SignalService implements OnModuleInit {
       });
 
       this.logger.log(
-        `[Signal][WEBHOOK] Success — ${resp.status} ${resp.statusText}\n` +
-        `  Response: ${JSON.stringify(resp.data)}`,
+        `[Signal][WEBHOOK] Success — ${resp.status} ${resp.statusText} | ` +
+        `Response: ${JSON.stringify(resp.data)}`,
       );
     } catch (err) {
       this.logger.error(
@@ -457,12 +541,12 @@ export class SignalService implements OnModuleInit {
     return TIMEFRAME_MS[tf] ?? 3_600_000;
   }
 
-  // Sleeps until 5 seconds after the next bar-close boundary
-  private async sleepUntilNextBarClose(): Promise<void> {
-    const intervalMs   = this.tfToMs(this.interval);
+  // Sleeps until 5 seconds after the next bar-close boundary for this interval
+  private async sleepUntilNextBarClose(interval: string): Promise<void> {
+    const intervalMs   = this.tfToMs(interval);
     const now          = Date.now();
     const msUntilClose = intervalMs - (now % intervalMs) + 5_000;
-    this.logger.log(`[Signal] Next check in ${Math.round(msUntilClose / 1000)}s (bar close + 5s buffer)`);
+    this.logger.log(`[Signal][${interval}] Next check in ${Math.round(msUntilClose / 1000)}s`);
     await this.sleep(msUntilClose);
   }
 
@@ -470,24 +554,48 @@ export class SignalService implements OnModuleInit {
     return new Promise(r => setTimeout(r, ms));
   }
 
-  // ─── Status (for controller) ──────────────────────────────────────────────
+  // ─── Status & manual trigger (for controller) ─────────────────────────────
 
   getStatus() {
     return {
-      running:            this.isRunning,
-      symbol:             this.symbol,
-      interval:           this.interval,
-      secondaryInterval:  this.secondaryInterval,
-      fastEmaPeriod:      this.fastEmaPeriod,
-      slowEmaPeriod:      this.slowEmaPeriod,
-      minConfluenceScore: this.minConfluenceScore,
-      atrPeriod:          this.atrPeriod,
-      atrSlMultiplier:    this.atrSlMultiplier,
-      tpCount:            this.tpCount,
-      activeDirection:    this.activeDirection === 1 ? 'LONG' : this.activeDirection === -1 ? 'SHORT' : 'NONE',
-      lastSignalBarTime:  this.lastSignalBarTime
-        ? new Date(this.lastSignalBarTime).toISOString()
-        : null,
+      scanners: this.scanners.map(s => ({
+        symbol:            s.symbol,
+        interval:          s.interval,
+        activeDirection:   s.activeDirection === 1 ? 'LONG' : s.activeDirection === -1 ? 'SHORT' : 'NONE',
+        lastSignalBarTime: s.lastSignalBarTime ? new Date(s.lastSignalBarTime).toISOString() : null,
+      })),
+      config: {
+        secondaryInterval:  this.secondaryInterval,
+        fastEmaPeriod:      this.fastEmaPeriod,
+        slowEmaPeriod:      this.slowEmaPeriod,
+        minConfluenceScore: this.minConfluenceScore,
+        atrPeriod:          this.atrPeriod,
+        atrSlMultiplier:    this.atrSlMultiplier,
+        tpCount:            this.tpCount,
+      },
     };
+  }
+
+  // Manually trigger check — optionally filtered by symbol and/or interval
+  async triggerCheck(
+    symbol?: string,
+    interval?: string,
+  ): Promise<{ scanner: string; triggered: boolean; signal?: SignalPayload }[]> {
+    const targets = this.scanners.filter(s =>
+      (!symbol || s.symbol === symbol) && (!interval || s.interval === interval),
+    );
+
+    if (targets.length === 0) {
+      return [];
+    }
+
+    const results = await Promise.all(
+      targets.map(async state => {
+        const result = await this.checkSignal(state);
+        return { scanner: `${state.symbol}/${state.interval}`, ...result };
+      }),
+    );
+
+    return results;
   }
 }
