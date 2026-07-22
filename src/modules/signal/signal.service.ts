@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
+import { TradingSignal } from '../../entities';
 import {
   Candle,
   calcEMA,
@@ -92,7 +95,6 @@ const TIMEFRAME_MS: Record<string, number> = {
   '1d':  86_400_000,
 };
 
-// KuCoin Spot interval identifiers
 const KUCOIN_SPOT_INTERVAL: Record<string, string> = {
   '1m':  '1min',
   '3m':  '3min',
@@ -108,7 +110,6 @@ const KUCOIN_SPOT_INTERVAL: Record<string, string> = {
   '1d':  '1day',
 };
 
-// KuCoin Futures granularity in minutes
 const KUCOIN_FUTURES_GRANULARITY: Record<string, number> = {
   '1m':  1,
   '5m':  5,
@@ -122,14 +123,13 @@ const KUCOIN_FUTURES_GRANULARITY: Record<string, number> = {
   '1d':  1440,
 };
 
-// KuCoin Futures uses non-standard symbols for some pairs
 const KUCOIN_FUTURES_SYMBOL_MAP: Record<string, string> = {
-  'BTCUSDT.P': 'XBTUSDTM',
-  'ETHUSDT.P': 'ETHUSDTM',
-  'SOLUSDT.P': 'SOLUSDTM',
-  'BNBUSDT.P': 'BNBUSDTM',
-  'XRPUSDT.P': 'XRPUSDTM',
-  'ADAUSDT.P': 'ADAUSDTM',
+  'BTCUSDT.P':  'XBTUSDTM',
+  'ETHUSDT.P':  'ETHUSDTM',
+  'SOLUSDT.P':  'SOLUSDTM',
+  'BNBUSDT.P':  'BNBUSDTM',
+  'XRPUSDT.P':  'XRPUSDTM',
+  'ADAUSDT.P':  'ADAUSDTM',
   'DOGEUSDT.P': 'DOGEUSDTM',
 };
 
@@ -154,7 +154,11 @@ export class SignalService implements OnModuleInit {
   private readonly kucoinSpotUrl: string;
   private readonly kucoinFuturesUrl: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    @InjectRepository(TradingSignal)
+    private readonly signalRepo: Repository<TradingSignal>,
+    private readonly config: ConfigService,
+  ) {
     this.symbols            = config.get('SIGNAL_SYMBOLS', 'BTC-USDT').split(',').map(s => s.trim()).filter(Boolean);
     this.intervals          = config.get('SIGNAL_INTERVALS', '1h').split(',').map(s => s.trim()).filter(Boolean);
     this.secondaryInterval  = config.get('SIGNAL_SECONDARY_INTERVAL', '5m');
@@ -183,10 +187,10 @@ export class SignalService implements OnModuleInit {
     const total = this.symbols.length * this.intervals.length;
     this.logger.log(
       `[Signal] Starting ${total} scanner(s)\n` +
-      `  Symbols:       ${this.symbols.join(', ')}\n` +
-      `  Intervals:     ${this.intervals.join(', ')}\n` +
-      `  Secondary TF:  ${this.secondaryInterval}\n` +
-      `  Fast/Slow EMA: ${this.fastEmaPeriod}/${this.slowEmaPeriod}\n` +
+      `  Symbols:        ${this.symbols.join(', ')}\n` +
+      `  Intervals:      ${this.intervals.join(', ')}\n` +
+      `  Secondary TF:   ${this.secondaryInterval}\n` +
+      `  Fast/Slow EMA:  ${this.fastEmaPeriod}/${this.slowEmaPeriod}\n` +
       `  Min confluence: ${this.minConfluenceScore}/7 | ATR×${this.atrSlMultiplier}`,
     );
 
@@ -205,12 +209,16 @@ export class SignalService implements OnModuleInit {
         );
       }
     }
+
+    // Retry loop — checks every 60s for undelivered webhooks
+    this.startRetryLoop().catch(err =>
+      this.logger.error(`[Signal] Retry loop crashed: ${err.message}`),
+    );
   }
 
   // ─── Per-scanner loop ─────────────────────────────────────────────────────
 
   private async runLoop(state: ScannerState): Promise<void> {
-    // Each TF aligns to its own bar-close boundary independently
     await this.sleepUntilNextBarClose(state.interval);
 
     while (true) {
@@ -220,6 +228,34 @@ export class SignalService implements OnModuleInit {
         this.logger.error(`[Signal][${state.symbol}/${state.interval}] Check error: ${err.message}`);
       }
       await this.sleepUntilNextBarClose(state.interval);
+    }
+  }
+
+  // ─── Webhook retry loop ───────────────────────────────────────────────────
+
+  private async startRetryLoop(): Promise<void> {
+    while (true) {
+      await this.sleep(60_000);
+      try {
+        await this.retryPendingWebhooks();
+      } catch (err) {
+        this.logger.error(`[Signal] Retry error: ${err.message}`);
+      }
+    }
+  }
+
+  private async retryPendingWebhooks(): Promise<void> {
+    const pending = await this.signalRepo.find({
+      where: { webhookStatus: 'pending' },
+    });
+
+    if (pending.length === 0) return;
+
+    this.logger.log(`[Signal] Retrying ${pending.length} undelivered webhook(s)...`);
+
+    for (const record of pending) {
+      const payload = this.buildPayloadFromRecord(record);
+      await this.deliverWebhook(record.id, payload);
     }
   }
 
@@ -242,13 +278,11 @@ export class SignalService implements OnModuleInit {
       return { triggered: false };
     }
 
-    // Last candle is the still-forming bar; work with the closed one before it
     const n = mainCandles.length - 2;
 
     const closes  = mainCandles.map(c => c.close);
     const volumes = mainCandles.map(c => c.volume);
 
-    // ── Indicators ──
     const fastEMA = calcEMA(closes, this.fastEmaPeriod);
     const slowEMA = calcEMA(closes, this.slowEmaPeriod);
     const vwap    = calcVWAP(mainCandles);
@@ -289,11 +323,9 @@ export class SignalService implements OnModuleInit {
       return { triggered: false };
     }
 
-    // ── Crossover detection ──
     const bullCross = bar.prevFastEMA <= bar.prevSlowEMA && bar.fastEMA > bar.slowEMA;
     const bearCross = bar.prevFastEMA >= bar.prevSlowEMA && bar.fastEMA < bar.slowEMA;
 
-    // ── Confluence scoring ──
     const bullFactors: ConfluenceFactors = {
       aboveVwap:           bar.close > bar.vwap,
       rsiAligned:          bar.rsi > 50,
@@ -313,9 +345,8 @@ export class SignalService implements OnModuleInit {
       secondaryRsiAligned: bar.secRsi < 50,
     };
 
-    const bullScore = Object.values(bullFactors).filter(Boolean).length;
-    const bearScore = Object.values(bearFactors).filter(Boolean).length;
-
+    const bullScore  = Object.values(bullFactors).filter(Boolean).length;
+    const bearScore  = Object.values(bearFactors).filter(Boolean).length;
     const marketBias = this.calcMarketBias(bullScore, bearScore);
 
     const longSignal  = bullCross && state.activeDirection <= 0 && bullScore >= this.minConfluenceScore;
@@ -323,7 +354,7 @@ export class SignalService implements OnModuleInit {
 
     this.logger.log(
       `[Signal]${tag} ` +
-      `EMA fast/slow: ${bar.fastEMA.toFixed(4)}/${bar.slowEMA.toFixed(4)} | ` +
+      `EMA: ${bar.fastEMA.toFixed(4)}/${bar.slowEMA.toFixed(4)} | ` +
       `Bull: ${bullScore}/7 | Bear: ${bearScore}/7 | Bias: ${marketBias.label} | ` +
       `Cross: ${bullCross ? 'BULL' : bearCross ? 'BEAR' : 'none'} | ` +
       `Signal: ${longSignal ? 'LONG' : shortSignal ? 'SHORT' : 'none'}`,
@@ -374,7 +405,7 @@ export class SignalService implements OnModuleInit {
       marketBias,
     };
 
-    // Update state before webhook so a webhook failure can't re-trigger
+    // Update state before DB save so a crash can't re-trigger on next bar
     state.activeDirection   = isBull ? 1 : -1;
     state.lastSignalBarTime = bar.openTime;
 
@@ -384,7 +415,31 @@ export class SignalService implements OnModuleInit {
       `Score: ${score}/7 | Bias: ${marketBias.label}`,
     );
 
-    await this.sendWebhook(payload);
+    // Save to DB first — webhook delivery tracked via webhookStatus column
+    const record = await this.signalRepo.save(
+      this.signalRepo.create({
+        symbol:          state.symbol,
+        timeframe:       state.interval,
+        signal:          payload.signal,
+        barTimestamp:    bar.openTime,
+        barDatetime:     new Date(bar.openTime),
+        entry:           String(payload.price.entry),
+        stopLoss:        String(payload.price.stopLoss),
+        takeProfit1:     String(payload.price.takeProfit1),
+        takeProfit2:     String(payload.price.takeProfit2),
+        takeProfit3:     String(payload.price.takeProfit3),
+        takeProfit4:     String(payload.price.takeProfit4),
+        takeProfit5:     String(payload.price.takeProfit5),
+        confluenceScore: score,
+        confluencePct:   String(payload.confluence.percentage),
+        biasLabel:       marketBias.label,
+        biasBull:        String(marketBias.bull),
+        biasBear:        String(marketBias.bear),
+        webhookStatus:   'pending',
+      }),
+    );
+
+    await this.deliverWebhook(record.id, payload);
     return { triggered: true, signal: payload };
   }
 
@@ -396,14 +451,113 @@ export class SignalService implements OnModuleInit {
     const difference = parseFloat(Math.abs(bull - bear).toFixed(2));
 
     let label: MarketBias['label'];
-    if (bull === bear)     label = 'NEUTRAL';
-    else if (bull > bear)  label = difference >= 40 ? 'STRONG BULL' : 'MILD BULL';
-    else                   label = difference >= 40 ? 'STRONG BEAR' : 'MILD BEAR';
+    if (bull === bear)    label = 'NEUTRAL';
+    else if (bull > bear) label = difference >= 40 ? 'STRONG BULL' : 'MILD BULL';
+    else                  label = difference >= 40 ? 'STRONG BEAR' : 'MILD BEAR';
 
     return { bull, bear, difference, label };
   }
 
-  // ─── Candle fetch — routes to Spot or Futures based on symbol ────────────
+  // ─── Webhook delivery (used by both live fire and retry loop) ────────────
+
+  private async deliverWebhook(recordId: string, payload: SignalPayload): Promise<void> {
+    if (!this.webhookUrl) {
+      this.logger.warn('[Signal][WEBHOOK] SIGNAL_WEBHOOK_URL not set — skipping');
+      return;
+    }
+
+    const body      = JSON.stringify(payload);
+    const signature = crypto
+      .createHmac('sha256', this.webhookSecret)
+      .update(body)
+      .digest('hex');
+
+    this.logger.log(
+      `[Signal][WEBHOOK] Sending ${payload.signal} ${payload.symbol}/${payload.timeframe} → ${this.webhookUrl}`,
+    );
+
+    try {
+      const resp = await axios.post(this.webhookUrl, body, {
+        headers: {
+          'Content-Type':   'application/json',
+          'X-Signature':    signature,
+          'X-Signal-Event': 'trading_signal',
+        },
+        timeout: 10_000,
+      });
+
+      await this.signalRepo.update(recordId, { webhookStatus: 'delivered', webhookError: null });
+
+      this.logger.log(
+        `[Signal][WEBHOOK] Delivered — ${resp.status} ${resp.statusText} | ` +
+        `Response: ${JSON.stringify(resp.data)}`,
+      );
+    } catch (err) {
+      const status = err.response?.status;
+      const body   = err.response?.data;
+
+      await this.signalRepo.update(recordId, {
+        webhookStatus: 'pending',
+        webhookError:  err.message,
+      });
+
+      this.logger.error(
+        `[Signal][WEBHOOK] FAILED — will retry in 60s\n` +
+        `  URL:    ${this.webhookUrl}\n` +
+        `  Error:  ${err.message}\n` +
+        `  Status: ${status ?? 'no response'}\n` +
+        `  Body:   ${JSON.stringify(body ?? null)}`,
+      );
+    }
+  }
+
+  // Rebuilds a SignalPayload from a saved DB record for retry delivery
+  private buildPayloadFromRecord(record: TradingSignal): SignalPayload {
+    return {
+      event:     'trading_signal',
+      signal:    record.signal as 'LONG' | 'SHORT',
+      symbol:    record.symbol,
+      timeframe: record.timeframe,
+      timestamp: Number(record.barTimestamp),
+      datetime:  record.barDatetime.toISOString(),
+      price: {
+        entry:       parseFloat(record.entry),
+        stopLoss:    parseFloat(record.stopLoss),
+        takeProfit1: parseFloat(record.takeProfit1),
+        takeProfit2: parseFloat(record.takeProfit2),
+        takeProfit3: parseFloat(record.takeProfit3),
+        takeProfit4: parseFloat(record.takeProfit4),
+        takeProfit5: parseFloat(record.takeProfit5),
+      },
+      risk: {
+        atr:           0,
+        riskAmount:    0,
+        atrMultiplier: this.atrSlMultiplier,
+      },
+      confluence: {
+        score:      record.confluenceScore,
+        total:      7,
+        percentage: parseFloat(record.confluencePct),
+        factors: {
+          aboveVwap:           false,
+          rsiAligned:          false,
+          macdAligned:         false,
+          emaAligned:          false,
+          adxWithTrend:        false,
+          volumeConfirmed:     false,
+          secondaryRsiAligned: false,
+        },
+      },
+      marketBias: {
+        bull:       parseFloat(record.biasBull),
+        bear:       parseFloat(record.biasBear),
+        difference: parseFloat(Math.abs(parseFloat(record.biasBull) - parseFloat(record.biasBear)).toFixed(2)),
+        label:      record.biasLabel as MarketBias['label'],
+      },
+    };
+  }
+
+  // ─── KuCoin candle fetch ──────────────────────────────────────────────────
 
   private fetchCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
     return symbol.endsWith('.P')
@@ -411,8 +565,7 @@ export class SignalService implements OnModuleInit {
       : this.fetchSpotCandles(symbol, interval, limit);
   }
 
-  // KuCoin Spot  — /api/v1/market/candles
-  // Returns newest-first, string arrays: [time(sec), open, close, high, low, volume, turnover]
+  // KuCoin Spot — newest-first, strings: [time(sec), open, close, high, low, volume, turnover]
   private async fetchSpotCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
     const kucoinSymbol   = this.toKucoinSpotSymbol(symbol);
     const kucoinInterval = KUCOIN_SPOT_INTERVAL[interval] ?? '1hour';
@@ -429,8 +582,6 @@ export class SignalService implements OnModuleInit {
       throw new Error(`KuCoin Spot API error: ${resp.data.code}`);
     }
 
-    // Reverse: KuCoin Spot returns newest-first
-    // Format: [time(sec), open, close, high, low, volume, turnover]
     return resp.data.data.reverse().map(k => ({
       openTime: parseInt(k[0]) * 1000,
       open:     parseFloat(k[1]),
@@ -441,14 +592,13 @@ export class SignalService implements OnModuleInit {
     }));
   }
 
-  // KuCoin Futures — /api/v1/kline/query
-  // Returns oldest-first, number arrays: [time(ms), open, high, low, close, volume]
+  // KuCoin Futures — oldest-first, numbers: [time(ms), open, high, low, close, volume]
   private async fetchFuturesCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
-    const kucoinSymbol  = this.toKucoinFuturesSymbol(symbol);
-    const granularity   = KUCOIN_FUTURES_GRANULARITY[interval] ?? 60;
-    const intervalMs    = this.tfToMs(interval);
-    const to            = Date.now();
-    const from          = to - limit * intervalMs;
+    const kucoinSymbol = this.toKucoinFuturesSymbol(symbol);
+    const granularity  = KUCOIN_FUTURES_GRANULARITY[interval] ?? 60;
+    const intervalMs   = this.tfToMs(interval);
+    const to           = Date.now();
+    const from         = to - limit * intervalMs;
 
     const resp = await axios.get<{ code: string; data: number[][] }>(
       `${this.kucoinFuturesUrl}/api/v1/kline/query`,
@@ -459,7 +609,6 @@ export class SignalService implements OnModuleInit {
       throw new Error(`KuCoin Futures API error: ${resp.data.code} — symbol: ${kucoinSymbol}`);
     }
 
-    // Already oldest-first — standard OHLCV: [time(ms), open, high, low, close, volume]
     return resp.data.data.map(k => ({
       openTime: k[0],
       open:     k[1],
@@ -470,7 +619,6 @@ export class SignalService implements OnModuleInit {
     }));
   }
 
-  // BTCUSDT → BTC-USDT  (spot symbols)
   private toKucoinSpotSymbol(symbol: string): string {
     if (symbol.includes('-')) return symbol;
     const quotes = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'BUSD'];
@@ -480,55 +628,9 @@ export class SignalService implements OnModuleInit {
     return symbol;
   }
 
-  // BTCUSDT.P → XBTUSDTM  (futures contract symbols)
   private toKucoinFuturesSymbol(symbol: string): string {
     if (KUCOIN_FUTURES_SYMBOL_MAP[symbol]) return KUCOIN_FUTURES_SYMBOL_MAP[symbol];
-    // Fallback: strip .P suffix and append M  (e.g. LINKUSDT.P → LINKUSDTM)
     return symbol.replace('.P', '') + 'M';
-  }
-
-  // ─── Webhook ──────────────────────────────────────────────────────────────
-
-  private async sendWebhook(payload: SignalPayload): Promise<void> {
-    if (!this.webhookUrl) {
-      this.logger.warn('[Signal][WEBHOOK] SIGNAL_WEBHOOK_URL not set — skipping');
-      return;
-    }
-
-    const body      = JSON.stringify(payload);
-    const signature = crypto
-      .createHmac('sha256', this.webhookSecret)
-      .update(body)
-      .digest('hex');
-
-    this.logger.log(
-      `[Signal][WEBHOOK] Sending ${payload.signal} ${payload.symbol}/${payload.timeframe} → ${this.webhookUrl}\n` +
-      `  Payload: ${body}`,
-    );
-
-    try {
-      const resp = await axios.post(this.webhookUrl, body, {
-        headers: {
-          'Content-Type':   'application/json',
-          'X-Signature':    signature,
-          'X-Signal-Event': 'trading_signal',
-        },
-        timeout: 10_000,
-      });
-
-      this.logger.log(
-        `[Signal][WEBHOOK] Success — ${resp.status} ${resp.statusText} | ` +
-        `Response: ${JSON.stringify(resp.data)}`,
-      );
-    } catch (err) {
-      this.logger.error(
-        `[Signal][WEBHOOK] FAILED — ${err.message}\n` +
-        `  URL:    ${this.webhookUrl}\n` +
-        `  Status: ${err.response?.status ?? 'no response'}\n` +
-        `  Body:   ${JSON.stringify(err.response?.data ?? null)}\n` +
-        `  Signal: ${body}`,
-      );
-    }
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -541,7 +643,6 @@ export class SignalService implements OnModuleInit {
     return TIMEFRAME_MS[tf] ?? 3_600_000;
   }
 
-  // Sleeps until 5 seconds after the next bar-close boundary for this interval
   private async sleepUntilNextBarClose(interval: string): Promise<void> {
     const intervalMs   = this.tfToMs(interval);
     const now          = Date.now();
@@ -576,7 +677,6 @@ export class SignalService implements OnModuleInit {
     };
   }
 
-  // Manually trigger check — optionally filtered by symbol and/or interval
   async triggerCheck(
     symbol?: string,
     interval?: string,
@@ -585,9 +685,7 @@ export class SignalService implements OnModuleInit {
       (!symbol || s.symbol === symbol) && (!interval || s.interval === interval),
     );
 
-    if (targets.length === 0) {
-      return [];
-    }
+    if (targets.length === 0) return [];
 
     const results = await Promise.all(
       targets.map(async state => {
