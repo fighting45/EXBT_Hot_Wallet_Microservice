@@ -15,6 +15,7 @@ import { ListenerModule } from './modules/listener/listener.module';
 import { SweeperModule } from './modules/sweeper/sweeper.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
 import { ArbitrageWithdrawalModule } from './modules/arbitrage/arbitrage-withdrawal.module';
+import { SignalModule } from './modules/signal/signal.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { ArbitrageWithdrawalModule } from './modules/arbitrage/arbitrage-withdra
     SweeperModule,
     WithdrawalModule,
     ArbitrageWithdrawalModule,
+    SignalModule,
   ],
 })
 export class AppModule {}
