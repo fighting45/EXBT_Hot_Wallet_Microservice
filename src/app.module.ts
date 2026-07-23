@@ -8,6 +8,7 @@ import {
   SweepTransaction,
   Withdrawal,
   ScannedBlock,
+  TradingSignal,
 } from './entities';
 import { EncryptionModule } from './modules/encryption/encryption.module';
 import { WalletModule } from './modules/wallet/wallet.module';
@@ -31,7 +32,7 @@ import { SignalModule } from './modules/signal/signal.module';
         username:   config.get('DB_USERNAME', 'exbotix'),
         password:   config.get('DB_PASSWORD'),
         database:   config.get('DB_DATABASE', 'exbotix_wallet'),
-        entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal, ScannedBlock],
+        entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal, ScannedBlock, TradingSignal],
         synchronize: config.get('DB_SYNCHRONIZE', 'false') === 'true',
         logging:     config.get('DB_LOGGING', 'false') === 'true',
         extra: {
