@@ -173,8 +173,9 @@ export class SignalService implements OnModuleInit {
 
     const laravelBase   = config.get('LARAVEL_URL', '');
     this.webhookUrl     = config.get('SIGNAL_WEBHOOK_URL', `${laravelBase}/api/v1/signals/webhook`);
-    const defaultSecret = config.get<string>('LARAVEL_API_SECRET') ?? '';
-    this.webhookSecret  = config.get('SIGNAL_WEBHOOK_SECRET', defaultSecret);
+    const laravelSecret = config.get<string>('LARAVEL_API_SECRET') ?? '';
+    const signalSecret  = config.get<string>('SIGNAL_WEBHOOK_SECRET') ?? '';
+    this.webhookSecret  = signalSecret || laravelSecret;
   }
 
   async onModuleInit() {
