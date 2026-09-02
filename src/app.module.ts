@@ -9,6 +9,7 @@ import {
   Withdrawal,
   ScannedBlock,
   TradingSignal,
+  UsdtWithdrawal,
 } from './entities';
 import { EncryptionModule } from './modules/encryption/encryption.module';
 import { WalletModule } from './modules/wallet/wallet.module';
@@ -17,6 +18,7 @@ import { SweeperModule } from './modules/sweeper/sweeper.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
 import { ArbitrageWithdrawalModule } from './modules/arbitrage/arbitrage-withdrawal.module';
 import { SignalModule } from './modules/signal/signal.module';
+import { UsdtWithdrawalModule } from './modules/usdt-withdrawal/usdt-withdrawal.module';
 
 @Module({
   imports: [
@@ -32,7 +34,7 @@ import { SignalModule } from './modules/signal/signal.module';
         username:   config.get('DB_USERNAME', 'exbotix'),
         password:   config.get('DB_PASSWORD'),
         database:   config.get('DB_DATABASE', 'exbotix_wallet'),
-        entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal, ScannedBlock, TradingSignal],
+        entities:   [WalletAddress, ProcessedDeposit, NetworkSyncState, SweepTransaction, Withdrawal, ScannedBlock, TradingSignal, UsdtWithdrawal],
         synchronize: config.get('DB_SYNCHRONIZE', 'false') === 'true',
         logging:     config.get('DB_LOGGING', 'false') === 'true',
         extra: {
@@ -49,6 +51,7 @@ import { SignalModule } from './modules/signal/signal.module';
     SweeperModule,
     WithdrawalModule,
     ArbitrageWithdrawalModule,
+    UsdtWithdrawalModule,
     SignalModule,
   ],
 })
