@@ -5,3 +5,4 @@ export { SweepTransaction } from './sweep-transaction.entity';
 export { Withdrawal } from './withdrawal.entity';
 export { ScannedBlock } from './scanned-block.entity';
 export { TradingSignal } from './trading-signal.entity';
+export { UsdtWithdrawal } from './usdt-withdrawal.entity';
