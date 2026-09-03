@@ -19,7 +19,7 @@ npm ci
 
 # ── 3. Build TypeScript ───────────────────────────────────────────────────────
 log "Building..."
-./node_modules/.bin/nest build --verbose
+./node_modules/.bin/nest build
 
 # ── 4. Prune devDependencies after build ──────────────────────────────────────
 log "Pruning dev dependencies..."
