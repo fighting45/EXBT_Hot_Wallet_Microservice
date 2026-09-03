@@ -42,3 +42,6 @@ pm2 save
 
 log "Done. Current status:"
 pm2 show "$APP"
+
+log "Recent logs:"
+pm2 logs "$APP" --lines 50 --nostream
