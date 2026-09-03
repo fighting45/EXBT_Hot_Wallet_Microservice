@@ -16,7 +16,6 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { ListenerModule } from './modules/listener/listener.module';
 import { SweeperModule } from './modules/sweeper/sweeper.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
-import { ArbitrageWithdrawalModule } from './modules/arbitrage/arbitrage-withdrawal.module';
 import { SignalModule } from './modules/signal/signal.module';
 import { UsdtWithdrawalModule } from './modules/usdt-withdrawal/usdt-withdrawal.module';
 
@@ -50,7 +49,6 @@ import { UsdtWithdrawalModule } from './modules/usdt-withdrawal/usdt-withdrawal.
     ListenerModule,
     SweeperModule,
     WithdrawalModule,
-    ArbitrageWithdrawalModule,
     UsdtWithdrawalModule,
     SignalModule,
   ],
