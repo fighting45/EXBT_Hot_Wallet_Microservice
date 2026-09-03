@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { UsdtWithdrawalService } from './usdt-withdrawal.service';
 import { UsdtWithdrawalRequestDto } from './dto/usdt-withdrawal.dto';
 
-@Controller('api/usdt-withdrawal')
+@Controller('api/v1/usdt-withdrawal')
 export class UsdtWithdrawalController {
   constructor(
     private service: UsdtWithdrawalService,

@@ -35,9 +35,7 @@ export class UsdtWithdrawalService implements OnModuleInit {
     private repo: Repository<UsdtWithdrawal>,
     private configService: ConfigService,
   ) {
-    this.webhookUrl =
-      this.configService.get<string>('USDT_WITHDRAWAL_WEBHOOK_URL') ||
-      `${this.configService.get('LARAVEL_URL')}/api/v1/usdt-withdrawals/webhook`;
+    this.webhookUrl = `${this.configService.get('LARAVEL_URL')}/api/v1/withdrawals/webhook`;
     this.webhookSecret = this.configService.get<string>('LARAVEL_API_SECRET');
   }
 
