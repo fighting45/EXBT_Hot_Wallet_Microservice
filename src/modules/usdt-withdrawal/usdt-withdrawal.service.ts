@@ -60,7 +60,7 @@ export class UsdtWithdrawalService implements OnModuleInit {
 
   // ─── Public API ───────────────────────────────────────────────────────────
 
-  async request(toAddress: string, amount: string): Promise<UsdtWithdrawal> {
+  async request(userId: number, toAddress: string, amount: string): Promise<UsdtWithdrawal> {
     if (!ethers.isAddress(toAddress)) {
       throw new BadRequestException('Invalid to_address');
     }
@@ -70,7 +70,7 @@ export class UsdtWithdrawalService implements OnModuleInit {
     }
 
     const record = await this.repo.save(
-      this.repo.create({ toAddress, amount, status: 'pending' }),
+      this.repo.create({ userId, toAddress, amount, status: 'pending' }),
     );
 
     this.broadcast(record.id).catch(err =>
@@ -163,6 +163,7 @@ export class UsdtWithdrawalService implements OnModuleInit {
 
       await this.notifyLaravel(id, {
         event:         'usdt_withdrawal.completed',
+        user_id:       record.userId,
         withdrawal_id: id,
         to_address:    record.toAddress,
         amount:        record.amount,
@@ -182,6 +183,7 @@ export class UsdtWithdrawalService implements OnModuleInit {
       const fresh = await this.repo.findOne({ where: { id } });
       await this.notifyLaravel(id, {
         event:         'usdt_withdrawal.failed',
+        user_id:       fresh.userId,
         withdrawal_id: id,
         to_address:    fresh.toAddress,
         amount:        fresh.amount,
@@ -247,6 +249,7 @@ export class UsdtWithdrawalService implements OnModuleInit {
     if (w.status === 'completed') {
       return {
         event:         'usdt_withdrawal.completed',
+        user_id:       w.userId,
         withdrawal_id: w.id,
         to_address:    w.toAddress,
         amount:        w.amount,
@@ -258,6 +261,7 @@ export class UsdtWithdrawalService implements OnModuleInit {
     }
     return {
       event:         'usdt_withdrawal.failed',
+      user_id:       w.userId,
       withdrawal_id: w.id,
       to_address:    w.toAddress,
       amount:        w.amount,

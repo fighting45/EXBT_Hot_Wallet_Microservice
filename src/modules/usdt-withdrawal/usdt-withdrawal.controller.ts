@@ -27,7 +27,7 @@ export class UsdtWithdrawalController {
       );
     }
 
-    const record = await this.service.request(dto.to_address, dto.amount);
+    const record = await this.service.request(dto.user_id, dto.to_address, dto.amount);
     return { withdrawal_id: record.id, status: record.status };
   }
 

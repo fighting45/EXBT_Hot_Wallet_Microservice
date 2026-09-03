@@ -5,6 +5,9 @@ export class UsdtWithdrawal {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ name: 'user_id', type: 'bigint' })
+  userId: number;
+
   @Column({ name: 'to_address', type: 'varchar', length: 42 })
   toAddress: string;
 
