@@ -13,19 +13,23 @@ cd "$DIR"
 log "Pulling latest code from origin/main..."
 git pull origin main
 
-# ── 2. Install dependencies ───────────────────────────────────────────────────
+# ── 2. Install dependencies (including devDeps needed for build) ──────────────
 log "Installing dependencies..."
-npm ci --omit=dev
+npm ci
 
 # ── 3. Build TypeScript ───────────────────────────────────────────────────────
 log "Building..."
-npm run build
+./node_modules/.bin/nest build --verbose
 
-# ── 4. Run migrations ─────────────────────────────────────────────────────────
+# ── 4. Prune devDependencies after build ──────────────────────────────────────
+log "Pruning dev dependencies..."
+npm prune --omit=dev
+
+# ── 5. Run migrations ─────────────────────────────────────────────────────────
 log "Running migrations..."
 node migrations/run.js || fail "Migrations failed — aborting before restart"
 
-# ── 5. Reload PM2 (zero-downtime) ─────────────────────────────────────────────
+# ── 6. Reload PM2 (zero-downtime) ─────────────────────────────────────────────
 if pm2 describe "$APP" > /dev/null 2>&1; then
   log "Reloading PM2 process '$APP'..."
   pm2 reload "$APP" --update-env
